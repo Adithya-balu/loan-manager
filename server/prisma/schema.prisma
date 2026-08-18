@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LoanFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum InterestMethod {
+  FLAT
+  REDUCING
+}
+
+enum LoanStatus {
+  ACTIVE
+  CLOSED
+  DEFAULTED
+}
+
+enum InstallmentStatus {
+  SCHEDULED
+  DUE
+  PARTIAL
+  PAID
+  OVERDUE
+  DEFAULTED
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  BANK
+  CHEQUE
+  OTHER
+}
+
+model Customer {
+  id             String             @id @default(cuid())
+  customerNumber String             @unique
+  name           String
+  mobile         String
+  email          String?
+  address        String?
+  documents      CustomerDocument[]
+  loans          Loan[]
+  payments       Payment[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model CustomerDocument {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label      String
+  fileName   String
+  url        String
+  mimeType   String
+  uploadedAt DateTime @default(now())
+}
+
+model Loan {
+  id                           String         @id @default(cuid())
+  customerId                   String
+  customer                     Customer       @relation(fields: [customerId], references: [id])
+  principal                    Float
+  annualRatePct                Float
+  frequency                    LoanFrequency
+  interestMethod               InterestMethod
+  installments                 Int
+  disbursementDate             DateTime
+  repaymentStartDate           DateTime
+  status                       LoanStatus     @default(ACTIVE)
+  graceDaysOverride            Int?
+  defaultThresholdDaysOverride Int?
+  schedule                     Installment[]
+  payments                     Payment[]
+  createdAt                    DateTime       @default(now())
+  updatedAt                    DateTime       @updatedAt
+}
+
+model Installment {
+  id                 String            @id @default(cuid())
+  loanId             String
+  loan               Loan              @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  sequence           Int
+  dueDate            DateTime
+  amountDue          Float
+  principalComponent Float
+  interestComponent  Float
+  paidAmount         Float             @default(0)
+  capitalizedAmount  Float             @default(0)
+  status             InstallmentStatus @default(SCHEDULED)
+  paidDate           DateTime?
+  payments           Payment[]
+
+  @@unique([loanId, sequence])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model Payment {
+  id            String       @id @default(cuid())
+  loanId        String
+  loan          Loan         @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  installmentId String?
+  installment   Installment? @relation(fields: [installmentId], references: [id])
+  customerId    String
+  customer      Customer     @relation(fields: [customerId], references: [id])
+  amount        Float
+  date          DateTime
+  mode          PaymentMode  @default(CASH)
+  note          String?
+  createdAt     DateTime     @default(now())
+
+  @@index([date])
+}
+
+model LoanTypeSetting {
+  frequency            LoanFrequency @id
+  graceDays            Int
+  defaultThresholdDays Int
+}
