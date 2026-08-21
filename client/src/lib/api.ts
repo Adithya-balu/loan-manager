@@ -1,6 +1,7 @@
 import type {
   ActionRequiredResponse,
   AppConfig,
+  AuthUser,
   CapitalizeResult,
   Customer,
   CustomerDetail,
@@ -21,6 +22,9 @@ import type {
 
 const BASE = '/api';
 
+/** Fired whenever a request comes back 401 outside of the login/me flow, so the app can force a re-login. */
+export const AUTH_EXPIRED_EVENT = 'auth:expired';
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -33,6 +37,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
+    credentials: 'include',
     ...options,
   });
   if (!res.ok) {
@@ -42,6 +47,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (data?.error) message = data.error;
     } catch {
       // non-JSON error body; keep the default message.
+    }
+    if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     }
     throw new ApiError(message, res.status);
   }
@@ -57,6 +65,11 @@ const put = <T>(path: string, body?: unknown) =>
 const del = <T = void>(path: string) => request<T>(path, { method: 'DELETE' });
 
 export const api = {
+  // Auth
+  login: (email: string, password: string) => post<AuthUser>('/auth/login', { email, password }),
+  logout: () => post<void>('/auth/logout'),
+  me: () => get<AuthUser>('/auth/me'),
+
   // Config
   getConfig: () => get<AppConfig>('/config'),
   updateConfig: (loanTypes: AppConfig['loanTypes']) => put<{ ok: true }>('/config', { loanTypes }),

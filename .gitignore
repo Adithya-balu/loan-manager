@@ -7,5 +7,7 @@ build/
 .env.*
 !.env.example
 server/uploads/
+server/.pgdata/
 coverage/
 *.tsbuildinfo
+.idea/

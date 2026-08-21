@@ -1,12 +1,14 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { api } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
 
 interface NavItem {
   to: string;
   label: string;
   icon: string;
   end?: boolean;
+  adminOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -16,12 +18,19 @@ const NAV: NavItem[] = [
   { to: '/repayments', label: 'Repayments', icon: '⇅' },
   { to: '/collections/today', label: "Today's Collection", icon: '◷' },
   { to: '/action-required', label: 'Action Required', icon: '!' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+  { to: '/settings', label: 'Settings', icon: '⚙', adminOnly: true },
 ];
 
 export function Layout() {
   const { data: actions } = useApi(() => api.getActionRequired(), []);
   const actionCount = actions?.total ?? 0;
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  async function onLogout() {
+    await logout();
+    navigate('/login', { replace: true });
+  }
 
   return (
     <div className="flex min-h-screen">
@@ -38,7 +47,7 @@ export function Layout() {
           </div>
         </div>
         <nav className="flex-1 space-y-1 px-3">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.adminOnly || user?.role === 'ADMIN').map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -64,6 +73,18 @@ export function Layout() {
           ))}
         </nav>
         <div className="border-t border-slate-100 px-5 py-4 text-xs text-slate-400">
+          <div className="mb-2 flex items-center justify-between">
+            <div>
+              <p className="font-medium text-slate-600">{user?.name}</p>
+              <p>{user?.role === 'ADMIN' ? 'Administrator' : 'Collection Agent'}</p>
+            </div>
+            <button
+              onClick={onLogout}
+              className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+            >
+              Log out
+            </button>
+          </div>
           INR · en-IN
         </div>
       </aside>
@@ -75,3 +96,4 @@ export function Layout() {
     </div>
   );
 }
+

@@ -48,6 +48,16 @@ brew services start postgresql@16
 export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
 ```
 
+> **No Homebrew/sudo access?** Use the bundled self-contained Postgres instead
+> — no system install or elevated permissions required:
+> ```bash
+> npm install --workspace server   # pulls in embedded-postgres
+> node server/scripts/dev-db.mjs   # starts a local cluster on port 5433, leave it running
+> ```
+> Then point `DATABASE_URL` in `server/.env` at
+> `postgresql://postgres:postgres@localhost:5433/loan_manager?schema=public`
+> and continue with the setup steps below as normal.
+
 ---
 
 ## Setup
@@ -79,7 +89,17 @@ npm run db:seed
 DATABASE_URL="postgresql://USER@localhost:5432/loan_manager?schema=public"
 PORT=4000
 CLIENT_ORIGIN="http://localhost:5173"
+JWT_SECRET="a long random string"
 ```
+
+After seeding, log in with one of the demo accounts:
+
+| Email | Password | Role |
+| --- | --- | --- |
+| `admin@loanmanager.local` | `admin123` | ADMIN |
+| `agent@loanmanager.local` | `agent123` | AGENT |
+
+**Change or remove these before any real deployment.**
 
 ---
 
@@ -155,6 +175,11 @@ Base URL: `/api`
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| POST | `/auth/login` | Log in; sets an httpOnly session cookie |
+| POST | `/auth/logout` | Clear the session cookie |
+| GET | `/auth/me` | Current authenticated user |
+| POST | `/auth/users` | Create a user (ADMIN only) |
+| GET | `/auth/users` | List users (ADMIN only) |
 | GET | `/health` | Liveness check |
 | GET | `/dashboard` | KPIs, collections, trend, portfolio, top risk |
 | GET | `/customers` | List with risk + outstanding |
@@ -207,7 +232,9 @@ Base URL: `/api`
 
 ## Notes
 
-- **No authentication** — the API is open; add auth before any real deployment.
+- **Authentication** — all `/api/*` routes except `/api/auth/*` and `/api/health`
+  require a logged-in session (JWT in an httpOnly cookie); `/api/config` writes
+  are ADMIN-only. See the demo accounts above.
 - **Currency** — INR, locale `en-IN`, throughout.
 - Loan terms are locked once any payment is recorded (edit the loan before
   collecting, or record payments from the loan detail page).

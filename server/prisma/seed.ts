@@ -6,6 +6,7 @@ import {
   type InterestMethod,
   type LoanFrequency,
 } from '@loan/shared';
+import { hashPassword } from '../src/lib/auth.js';
 
 const prisma = new PrismaClient();
 
@@ -113,6 +114,25 @@ async function main() {
   await prisma.customerDocument.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.loanTypeSetting.deleteMany();
+  await prisma.user.deleteMany();
+
+  await prisma.user.createMany({
+    data: [
+      {
+        name: 'Admin',
+        email: 'admin@loanmanager.local',
+        passwordHash: await hashPassword('admin123'),
+        role: 'ADMIN',
+      },
+      {
+        name: 'Collection Agent',
+        email: 'agent@loanmanager.local',
+        passwordHash: await hashPassword('agent123'),
+        role: 'AGENT',
+      },
+    ],
+  });
+  console.log('Seeded users: admin@loanmanager.local / admin123 (ADMIN), agent@loanmanager.local / agent123 (AGENT)');
 
   await prisma.loanTypeSetting.createMany({
     data: [

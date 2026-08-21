@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import { DEFAULT_SETTINGS } from '../lib/loanService.js';
+import { requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -38,6 +39,7 @@ const settingSchema = z.object({
 
 router.put(
   '/',
+  requireRole('ADMIN'),
   asyncHandler(async (req, res) => {
     const data = settingSchema.parse(req.body);
     await prisma.$transaction(

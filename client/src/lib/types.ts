@@ -31,6 +31,16 @@ export type {
   ScheduleSummary,
 } from '@loan/shared';
 
+export type Role = 'ADMIN' | 'AGENT';
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+}
+
+
 /** Money + status aggregates the API attaches to a loan. */
 export interface LoanRollup {
   totalPayable: number;
