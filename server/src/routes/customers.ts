@@ -16,6 +16,7 @@ const router = Router();
 // multer) fails for anything near/above that size. See POST
 // '/:id/documents/upload-token' + '/:id/documents/confirm' below.
 const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+const MAX_DOCUMENTS_PER_CUSTOMER = 20;
 
 const customerSchema = z.object({
   name: z.string().min(1),
@@ -167,6 +168,12 @@ router.post(
           if (!pathname.startsWith(`customers/${customerId}/`)) {
             throw new Error('Invalid upload path for this customer');
           }
+          const existingCount = await prisma.customerDocument.count({ where: { customerId } });
+          if (existingCount >= MAX_DOCUMENTS_PER_CUSTOMER) {
+            throw new Error(
+              `This customer already has the maximum of ${MAX_DOCUMENTS_PER_CUSTOMER} documents. Remove one before uploading another.`,
+            );
+          }
           return {
             addRandomSuffix: true,
             maximumSizeInBytes: MAX_DOCUMENT_BYTES,
@@ -195,6 +202,12 @@ router.post(
     const data = confirmDocumentSchema.parse(req.body);
     if (!data.url.includes(`customers/${req.params.id}/`)) {
       throw new Error('Document does not belong to this customer');
+    }
+    const existingCount = await prisma.customerDocument.count({ where: { customerId: req.params.id } });
+    if (existingCount >= MAX_DOCUMENTS_PER_CUSTOMER) {
+      throw new Error(
+        `This customer already has the maximum of ${MAX_DOCUMENTS_PER_CUSTOMER} documents. Remove one before uploading another.`,
+      );
     }
     const doc = await prisma.customerDocument.create({
       data: {

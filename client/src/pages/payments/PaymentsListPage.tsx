@@ -4,16 +4,26 @@ import { PageHeader } from '../../components/PageHeader';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Field';
+import { ConfirmDialog } from '../../components/ui/Modal';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/Feedback';
 import { TBody, TD, TH, THead, TR, Table } from '../../components/ui/Table';
+import { useToast } from '../../components/ui/Toast';
+import { PaymentModal, type PaymentEditTarget } from '../../components/PaymentModal';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
-import { FREQUENCY_LABEL, formatCurrency, formatDate } from '../../lib/format';
+import { FREQUENCY_LABEL, formatCurrency, formatDate, toDateInput } from '../../lib/format';
+import type { PaymentListItem } from '../../lib/types';
 
 export function PaymentsListPage() {
   const navigate = useNavigate();
+  const toast = useToast();
   const { data, loading, error, reload } = useApi(() => api.listPayments(), []);
   const [query, setQuery] = useState('');
+  const [editingPayment, setEditingPayment] = useState<
+    { loanId: string; target: PaymentEditTarget } | undefined
+  >(undefined);
+  const [deleteTarget, setDeleteTarget] = useState<PaymentListItem | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -27,6 +37,28 @@ export function PaymentsListPage() {
   }, [data, query]);
 
   const total = useMemo(() => filtered.reduce((a, p) => a + p.amount, 0), [filtered]);
+
+  function openEdit(p: PaymentListItem) {
+    setEditingPayment({
+      loanId: p.loanId,
+      target: { id: p.id, amount: p.amount, date: toDateInput(p.date), mode: p.mode, note: p.note },
+    });
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleteBusy(true);
+    try {
+      await api.deletePayment(deleteTarget.id);
+      toast.success('Payment deleted');
+      setDeleteTarget(null);
+      reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete payment');
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   return (
     <>
@@ -75,6 +107,7 @@ export function PaymentsListPage() {
                 <TH align="center">Installment</TH>
                 <TH>Mode</TH>
                 <TH align="right">Amount</TH>
+                <TH align="right">Actions</TH>
               </TR>
             </THead>
             <TBody>
@@ -89,12 +122,51 @@ export function PaymentsListPage() {
                   <TD align="center">{p.installment ? `#${p.installment.sequence}` : '—'}</TD>
                   <TD>{p.mode}</TD>
                   <TD align="right">{formatCurrency(p.amount)}</TD>
+                  <TD align="right">
+                    <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                      <Button size="sm" variant="secondary" onClick={() => openEdit(p)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => setDeleteTarget(p)}>
+                        Delete
+                      </Button>
+                    </div>
+                  </TD>
                 </TR>
               ))}
             </TBody>
           </Table>
         )}
       </Card>
+
+      {editingPayment && (
+        <PaymentModal
+          open={!!editingPayment}
+          onClose={() => setEditingPayment(undefined)}
+          loanId={editingPayment.loanId}
+          editTarget={editingPayment.target}
+          onSuccess={reload}
+        />
+      )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete payment?"
+        danger
+        busy={deleteBusy}
+        confirmLabel="Delete"
+        message={
+          deleteTarget ? (
+            <>
+              This will remove the payment of <strong>{formatCurrency(deleteTarget.amount)}</strong>{' '}
+              dated {formatDate(deleteTarget.date)} and recompute the installment schedule. This
+              cannot be undone.
+            </>
+          ) : null
+        }
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </>
   );
 }

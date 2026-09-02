@@ -210,6 +210,139 @@ export interface RecordPaymentInput {
   note?: string | null;
 }
 
+type TxClient = Prisma.TransactionClient;
+
+/**
+ * Apply a single payment's amount across a loan's open installments (in
+ * sequence order, starting from the chosen installment or the first open
+ * one). Partial payments and overpayments are supported; leftover money
+ * after the last installment is credited onto the final installment
+ * (reducing outstanding). This is the shared core used both when recording a
+ * brand-new payment and when replaying a loan's payment history after an
+ * edit/delete (see `replayLoanPayments`).
+ */
+async function applyPaymentAllocation(
+  tx: TxClient,
+  loanId: string,
+  input: { installmentId?: string | null; amount: number; date: Date },
+) {
+  const schedule = await tx.installment.findMany({
+    where: { loanId },
+    orderBy: { sequence: 'asc' },
+  });
+
+  const open = schedule.filter(
+    (i) => i.status !== 'DEFAULTED' && round2(i.amountDue - i.paidAmount) > 0.005,
+  );
+  let startIdx = 0;
+  if (input.installmentId) {
+    const idx = open.findIndex((i) => i.id === input.installmentId);
+    startIdx = idx >= 0 ? idx : 0;
+  }
+
+  let remaining = round2(input.amount);
+  const updates: { id: string; paidAmount: number; status: Installment['status']; paidDate: Date | null }[] = [];
+
+  for (let i = startIdx; i < open.length && remaining > 0.005; i++) {
+    const inst = open[i];
+    const capacity = round2(inst.amountDue - inst.paidAmount);
+    const apply = Math.min(remaining, capacity);
+    const newPaid = round2(inst.paidAmount + apply);
+    remaining = round2(remaining - apply);
+    const fullyPaid = newPaid >= round2(inst.amountDue) - 0.005;
+    updates.push({
+      id: inst.id,
+      paidAmount: newPaid,
+      status: fullyPaid ? 'PAID' : 'PARTIAL',
+      paidDate: fullyPaid ? input.date : inst.paidDate,
+    });
+  }
+
+  // Leftover overpayment → credit the final open installment (reduces outstanding).
+  if (remaining > 0.005 && open.length > 0) {
+    const last = open[open.length - 1];
+    const existing = updates.find((u) => u.id === last.id);
+    if (existing) {
+      existing.paidAmount = round2(existing.paidAmount + remaining);
+      existing.status = 'PAID';
+      existing.paidDate = existing.paidDate ?? input.date;
+    } else {
+      updates.push({
+        id: last.id,
+        paidAmount: round2(last.paidAmount + remaining),
+        status: 'PAID',
+        paidDate: input.date,
+      });
+    }
+    remaining = 0;
+  }
+
+  for (const u of updates) {
+    await tx.installment.update({
+      where: { id: u.id },
+      data: { paidAmount: u.paidAmount, status: u.status, paidDate: u.paidDate },
+    });
+  }
+
+  return { primaryInstallmentId: input.installmentId ?? open[startIdx]?.id ?? null };
+}
+
+/** Recompute a loan's status once its payments have been reset/replayed. */
+async function syncLoanStatusAfterReplay(tx: TxClient, loanId: string, currentStatus: Loan['status']) {
+  if (currentStatus === 'DEFAULTED') return;
+  const refreshed = await tx.installment.findMany({ where: { loanId } });
+  const allSettled = refreshed.every((i) => i.status === 'PAID' || i.status === 'DEFAULTED');
+  if (allSettled && currentStatus !== 'CLOSED') {
+    await tx.loan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
+  } else if (!allSettled && currentStatus === 'CLOSED') {
+    await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE' } });
+  }
+}
+
+/**
+ * Rebuild every non-defaulted installment's paid amount from scratch by
+ * replaying the loan's payments in chronological order. Used after editing
+ * or deleting a payment, since a single payment's amount can be spread
+ * across several installments and there's no cheap way to "undo" just one
+ * without recomputing the whole allocation from the ground up.
+ */
+async function replayLoanPayments(tx: TxClient, loanId: string) {
+  const loan = await tx.loan.findUniqueOrThrow({
+    where: { id: loanId },
+    include: { schedule: { orderBy: { sequence: 'asc' } } },
+  });
+
+  for (const inst of loan.schedule) {
+    if (inst.status === 'DEFAULTED') continue;
+    await tx.installment.update({
+      where: { id: inst.id },
+      data: { paidAmount: 0, status: 'SCHEDULED', paidDate: null },
+    });
+  }
+
+  const payments = await tx.payment.findMany({
+    where: { loanId },
+    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+  });
+
+  for (const p of payments) {
+    await applyPaymentAllocation(tx, loanId, {
+      installmentId: p.installmentId,
+      amount: p.amount,
+      date: p.date,
+    });
+  }
+
+  await syncLoanStatusAfterReplay(tx, loanId, loan.status);
+}
+
+/** Reject payment dates that fall before the loan was disbursed. */
+function assertPaymentDateAllowed(disbursementDate: Date, payDate: Date) {
+  if (dateOnly(payDate).getTime() < dateOnly(disbursementDate).getTime()) {
+    throw new Error("Payment date can't be before the loan's disbursement date");
+  }
+}
+
 /**
  * Record a collection. The amount is allocated across open installments in
  * sequence order (starting from the chosen installment, or the first open one).
@@ -219,65 +352,15 @@ export interface RecordPaymentInput {
 export async function recordPayment(input: RecordPaymentInput) {
   const payDate = new Date(input.date);
   return prisma.$transaction(async (tx) => {
-    const loan = await tx.loan.findUniqueOrThrow({
-      where: { id: input.loanId },
-      include: { schedule: { orderBy: { sequence: 'asc' } } },
+    const loan = await tx.loan.findUniqueOrThrow({ where: { id: input.loanId } });
+    assertPaymentDateAllowed(loan.disbursementDate, payDate);
+
+    const { primaryInstallmentId } = await applyPaymentAllocation(tx, loan.id, {
+      installmentId: input.installmentId,
+      amount: input.amount,
+      date: payDate,
     });
 
-    const open = loan.schedule.filter(
-      (i) => i.status !== 'DEFAULTED' && round2(i.amountDue - i.paidAmount) > 0.005,
-    );
-    let startIdx = 0;
-    if (input.installmentId) {
-      const idx = open.findIndex((i) => i.id === input.installmentId);
-      startIdx = idx >= 0 ? idx : 0;
-    }
-
-    let remaining = round2(input.amount);
-    const updates: { id: string; paidAmount: number; status: Installment['status']; paidDate: Date | null }[] = [];
-
-    for (let i = startIdx; i < open.length && remaining > 0.005; i++) {
-      const inst = open[i];
-      const capacity = round2(inst.amountDue - inst.paidAmount);
-      const apply = Math.min(remaining, capacity);
-      const newPaid = round2(inst.paidAmount + apply);
-      remaining = round2(remaining - apply);
-      const fullyPaid = newPaid >= round2(inst.amountDue) - 0.005;
-      updates.push({
-        id: inst.id,
-        paidAmount: newPaid,
-        status: fullyPaid ? 'PAID' : 'PARTIAL',
-        paidDate: fullyPaid ? payDate : inst.paidDate,
-      });
-    }
-
-    // Leftover overpayment → credit the final open installment (reduces outstanding).
-    if (remaining > 0.005 && open.length > 0) {
-      const last = open[open.length - 1];
-      const existing = updates.find((u) => u.id === last.id);
-      if (existing) {
-        existing.paidAmount = round2(existing.paidAmount + remaining);
-        existing.status = 'PAID';
-        existing.paidDate = existing.paidDate ?? payDate;
-      } else {
-        updates.push({
-          id: last.id,
-          paidAmount: round2(last.paidAmount + remaining),
-          status: 'PAID',
-          paidDate: payDate,
-        });
-      }
-      remaining = 0;
-    }
-
-    for (const u of updates) {
-      await tx.installment.update({
-        where: { id: u.id },
-        data: { paidAmount: u.paidAmount, status: u.status, paidDate: u.paidDate },
-      });
-    }
-
-    const primaryInstallmentId = input.installmentId ?? open[startIdx]?.id ?? null;
     const payment = await tx.payment.create({
       data: {
         loanId: loan.id,
@@ -300,6 +383,51 @@ export async function recordPayment(input: RecordPaymentInput) {
     }
 
     return payment;
+  });
+}
+
+export interface UpdatePaymentInput {
+  amount: number;
+  date: string;
+  mode?: 'CASH' | 'UPI' | 'BANK' | 'CHEQUE' | 'OTHER';
+  note?: string | null;
+}
+
+/**
+ * Edit an existing payment's amount/date/mode/note. Since a payment's amount
+ * may be spread across multiple installments, the safest way to reflect the
+ * edit is to reset the loan's installments and replay every payment (in
+ * chronological order) from scratch.
+ */
+export async function updatePayment(paymentId: string, input: UpdatePaymentInput) {
+  const payDate = new Date(input.date);
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    const loan = await tx.loan.findUniqueOrThrow({ where: { id: existing.loanId } });
+    assertPaymentDateAllowed(loan.disbursementDate, payDate);
+
+    await tx.payment.update({
+      where: { id: paymentId },
+      data: {
+        amount: round2(input.amount),
+        date: payDate,
+        mode: input.mode ?? existing.mode,
+        note: input.note ?? null,
+      },
+    });
+
+    await replayLoanPayments(tx, existing.loanId);
+
+    return tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+  });
+}
+
+/** Delete a payment and replay the loan's remaining payment history. */
+export async function deletePayment(paymentId: string) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.payment.findUniqueOrThrow({ where: { id: paymentId } });
+    await tx.payment.delete({ where: { id: paymentId } });
+    await replayLoanPayments(tx, existing.loanId);
   });
 }
 

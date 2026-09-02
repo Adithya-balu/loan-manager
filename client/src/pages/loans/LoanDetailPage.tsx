@@ -8,11 +8,11 @@ import { ConfirmDialog } from '../../components/ui/Modal';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/Feedback';
 import { TBody, TD, TH, THead, TR, Table } from '../../components/ui/Table';
 import { useToast } from '../../components/ui/Toast';
-import { PaymentModal, type PaymentPrefill } from '../../components/PaymentModal';
+import { PaymentModal, type PaymentEditTarget, type PaymentPrefill } from '../../components/PaymentModal';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
-import { FREQUENCY_LABEL, formatCurrency, formatDate } from '../../lib/format';
-import type { EnrichedInstallment } from '../../lib/types';
+import { FREQUENCY_LABEL, formatCurrency, formatDate, toDateInput } from '../../lib/format';
+import type { EnrichedInstallment, PaymentWithInstallment } from '../../lib/types';
 
 export function LoanDetailPage() {
   const { id = '' } = useParams();
@@ -22,6 +22,9 @@ export function LoanDetailPage() {
 
   const [payOpen, setPayOpen] = useState(false);
   const [payPrefill, setPayPrefill] = useState<PaymentPrefill | undefined>(undefined);
+  const [editingPayment, setEditingPayment] = useState<PaymentEditTarget | undefined>(undefined);
+  const [deletePaymentTarget, setDeletePaymentTarget] = useState<PaymentWithInstallment | null>(null);
+  const [deletePaymentBusy, setDeletePaymentBusy] = useState(false);
   const [capTarget, setCapTarget] = useState<EnrichedInstallment | null>(null);
   const [capBusy, setCapBusy] = useState(false);
   const [defaultLoanOpen, setDefaultLoanOpen] = useState(false);
@@ -36,7 +39,35 @@ export function LoanDetailPage() {
 
   function openPayment(prefill?: PaymentPrefill) {
     setPayPrefill(prefill);
+    setEditingPayment(undefined);
     setPayOpen(true);
+  }
+
+  function openEditPayment(payment: PaymentWithInstallment) {
+    setPayPrefill(undefined);
+    setEditingPayment({
+      id: payment.id,
+      amount: payment.amount,
+      date: toDateInput(payment.date),
+      mode: payment.mode,
+      note: payment.note,
+    });
+    setPayOpen(true);
+  }
+
+  async function confirmDeletePayment() {
+    if (!deletePaymentTarget) return;
+    setDeletePaymentBusy(true);
+    try {
+      await api.deletePayment(deletePaymentTarget.id);
+      toast.success('Payment deleted');
+      setDeletePaymentTarget(null);
+      reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to delete payment');
+    } finally {
+      setDeletePaymentBusy(false);
+    }
   }
 
   async function confirmCapitalize() {
@@ -228,6 +259,7 @@ export function LoanDetailPage() {
                 <TH>Mode</TH>
                 <TH>Note</TH>
                 <TH align="right">Amount</TH>
+                <TH align="right">Actions</TH>
               </TR>
             </THead>
             <TBody>
@@ -238,6 +270,16 @@ export function LoanDetailPage() {
                   <TD>{p.mode}</TD>
                   <TD>{p.note ?? '—'}</TD>
                   <TD align="right">{formatCurrency(p.amount)}</TD>
+                  <TD align="right">
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => openEditPayment(p)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => setDeletePaymentTarget(p)}>
+                        Delete
+                      </Button>
+                    </div>
+                  </TD>
                 </TR>
               ))}
             </TBody>
@@ -250,8 +292,29 @@ export function LoanDetailPage() {
         onClose={() => setPayOpen(false)}
         loanId={id}
         prefill={payPrefill}
+        editTarget={editingPayment}
         subtitle={`${data.customer.name} · outstanding ${formatCurrency(rollup.outstanding)}`}
         onSuccess={reload}
+      />
+
+      <ConfirmDialog
+        open={deletePaymentTarget !== null}
+        title="Delete payment?"
+        danger
+        busy={deletePaymentBusy}
+        confirmLabel="Delete"
+        message={
+          deletePaymentTarget ? (
+            <>
+              This will remove the payment of{' '}
+              <strong>{formatCurrency(deletePaymentTarget.amount)}</strong> dated{' '}
+              {formatDate(deletePaymentTarget.date)} and recompute the installment schedule. This
+              cannot be undone.
+            </>
+          ) : null
+        }
+        onConfirm={confirmDeletePayment}
+        onCancel={() => setDeletePaymentTarget(null)}
       />
 
       <ConfirmDialog

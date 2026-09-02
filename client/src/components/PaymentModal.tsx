@@ -14,6 +14,14 @@ export interface PaymentPrefill {
   sequence?: number;
 }
 
+export interface PaymentEditTarget {
+  id: string;
+  amount: number;
+  date: string;
+  mode: PaymentMode;
+  note?: string | null;
+}
+
 export function PaymentModal({
   open,
   onClose,
@@ -21,6 +29,7 @@ export function PaymentModal({
   title,
   subtitle,
   prefill,
+  editTarget,
   onSuccess,
 }: {
   open: boolean;
@@ -29,23 +38,28 @@ export function PaymentModal({
   title?: string;
   subtitle?: string;
   prefill?: PaymentPrefill;
+  /** When set, the modal edits this existing payment instead of creating a new one. */
+  editTarget?: PaymentEditTarget;
   onSuccess: () => void;
 }) {
   const toast = useToast();
-  const [amount, setAmount] = useState(prefill?.amount ? String(prefill.amount) : '');
-  const [date, setDate] = useState(todayISO());
-  const [mode, setMode] = useState<PaymentMode>('CASH');
-  const [note, setNote] = useState('');
+  const isEdit = !!editTarget;
+  const [amount, setAmount] = useState(
+    editTarget ? String(editTarget.amount) : prefill?.amount ? String(prefill.amount) : '',
+  );
+  const [date, setDate] = useState(editTarget?.date ?? todayISO());
+  const [mode, setMode] = useState<PaymentMode>(editTarget?.mode ?? 'CASH');
+  const [note, setNote] = useState(editTarget?.note ?? '');
   const [saving, setSaving] = useState(false);
 
-  // Reset local state whenever the modal is (re)opened with a new prefill.
+  // Reset local state whenever the modal is (re)opened with a new prefill/target.
   const [lastOpen, setLastOpen] = useState(false);
   if (open && !lastOpen) {
     setLastOpen(true);
-    setAmount(prefill?.amount ? String(prefill.amount) : '');
-    setDate(todayISO());
-    setMode('CASH');
-    setNote('');
+    setAmount(editTarget ? String(editTarget.amount) : prefill?.amount ? String(prefill.amount) : '');
+    setDate(editTarget?.date ?? todayISO());
+    setMode(editTarget?.mode ?? 'CASH');
+    setNote(editTarget?.note ?? '');
   }
   if (!open && lastOpen) setLastOpen(false);
 
@@ -57,19 +71,29 @@ export function PaymentModal({
     }
     setSaving(true);
     try {
-      await api.createPayment({
-        loanId,
-        installmentId: prefill?.installmentId ?? null,
-        amount: value,
-        date,
-        mode,
-        note: note.trim() || null,
-      });
-      toast.success('Payment recorded');
+      if (editTarget) {
+        await api.updatePayment(editTarget.id, {
+          amount: value,
+          date,
+          mode,
+          note: note.trim() || null,
+        });
+        toast.success('Payment updated');
+      } else {
+        await api.createPayment({
+          loanId,
+          installmentId: prefill?.installmentId ?? null,
+          amount: value,
+          date,
+          mode,
+          note: note.trim() || null,
+        });
+        toast.success('Payment recorded');
+      }
       onSuccess();
       onClose();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to record payment');
+      toast.error(e instanceof Error ? e.message : 'Failed to save payment');
     } finally {
       setSaving(false);
     }
@@ -79,14 +103,14 @@ export function PaymentModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={title ?? 'Record Payment'}
+      title={title ?? (isEdit ? 'Edit Payment' : 'Record Payment')}
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={onSubmit} disabled={saving}>
-            {saving ? 'Saving…' : 'Record Payment'}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Record Payment'}
           </Button>
         </>
       }

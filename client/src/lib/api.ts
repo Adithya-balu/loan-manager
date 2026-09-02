@@ -17,6 +17,7 @@ import type {
   Payment,
   PaymentInput,
   PaymentListItem,
+  PaymentMode,
   ScheduleSummary,
   TodayCollectionResponse,
 } from './types';
@@ -123,6 +124,11 @@ export const api = {
     return get<PaymentListItem[]>(`/payments${qs ? `?${qs}` : ''}`);
   },
   createPayment: (data: PaymentInput) => post<Payment>('/payments', data),
+  updatePayment: (
+    id: string,
+    data: { amount: number; date: string; mode?: PaymentMode; note?: string | null },
+  ) => put<Payment>(`/payments/${id}`, data),
+  deletePayment: (id: string) => del(`/payments/${id}`),
 
   // Actions / collections
   getTodayCollection: (includeOverdue = true) =>
