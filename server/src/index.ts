@@ -15,7 +15,15 @@ import { requireAuth } from './middleware/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const UPLOADS_DIR = path.resolve(__dirname, '../uploads');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// Vercel Functions run on a read-only filesystem (except /tmp), so this local
+// uploads dir only exists for local dev. Document uploads themselves go to
+// Vercel Blob (see routes/customers.ts); this directory is kept only for
+// backwards-compatible local static serving.
+try {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+} catch {
+  // Read-only filesystem (e.g. Vercel) — safe to ignore.
+}
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
@@ -44,6 +52,14 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   res.status(400).json({ error: message });
 });
 
-app.listen(PORT, () => {
-  console.log(`Loan Manager API running on http://localhost:${PORT}`);
-});
+// Vercel Functions invoke the exported app directly rather than listening on
+// a port, so only start a listener when running as a normal Node process.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Loan Manager API running on http://localhost:${PORT}`);
+  });
+}
+
+// Default export so this app can be used directly as a Vercel Function
+// handler (see /api/index.ts at the repo root).
+export default app;

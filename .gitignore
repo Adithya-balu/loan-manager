@@ -11,3 +11,6 @@ server/.pgdata/
 coverage/
 *.tsbuildinfo
 .idea/
+.vercel/
+.vercel
+.env*

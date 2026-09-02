@@ -171,7 +171,7 @@ export function CustomerDetailPage() {
                   <li key={d.id} className="flex items-center justify-between py-2">
                     <div>
                       <a
-                        href={d.url}
+                        href={`/api/customers/${customer.id}/documents/${d.id}/file`}
                         target="_blank"
                         rel="noreferrer"
                         className="text-sm font-medium text-indigo-600 hover:underline"

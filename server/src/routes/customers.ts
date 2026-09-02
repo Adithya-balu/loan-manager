@@ -1,25 +1,19 @@
 import { Router } from 'express';
 import multer from 'multer';
-import path from 'node:path';
-import fs from 'node:fs';
+import { Readable } from 'node:stream';
+import { del, get, put } from '@vercel/blob';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import { computeCustomerRisk } from '../lib/riskService.js';
 import { getSettingsMap, rollupLoan } from '../lib/loanService.js';
-import { UPLOADS_DIR } from '../index.js';
 
 const router = Router();
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const base = path.basename(file.originalname, ext).replace(/[^a-z0-9]/gi, '_').slice(0, 40);
-    cb(null, `${Date.now()}_${base}${ext}`);
-  },
-});
-const upload = multer({ storage, limits: { fileSize: 15 * 1024 * 1024 } });
+// Files are buffered in memory, then uploaded to Vercel Blob (private access)
+// — Vercel Functions have a read-only filesystem, so local disk storage
+// doesn't work in production.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 const customerSchema = z.object({
   name: z.string().min(1),
@@ -162,16 +156,44 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!req.file) throw new Error('No file uploaded');
     const label = (req.body.label as string) || req.file.originalname;
+    const blob = await put(`customers/${req.params.id}/${req.file.originalname}`, req.file.buffer, {
+      access: 'private',
+      addRandomSuffix: true,
+      contentType: req.file.mimetype,
+    });
     const doc = await prisma.customerDocument.create({
       data: {
         customerId: req.params.id,
         label,
         fileName: req.file.originalname,
-        url: `/uploads/${req.file.filename}`,
+        url: blob.url,
         mimeType: req.file.mimetype,
       },
     });
     res.status(201).json(doc);
+  }),
+);
+
+// Stream a document's file content through the server so access stays
+// gated behind requireAuth — private Vercel Blob URLs aren't publicly
+// fetchable.
+router.get(
+  '/:id/documents/:docId/file',
+  asyncHandler(async (req, res) => {
+    const doc = await prisma.customerDocument.findUnique({ where: { id: req.params.docId } });
+    if (!doc || doc.customerId !== req.params.id) {
+      res.status(404).json({ error: 'Document not found' });
+      return;
+    }
+    const result = await get(doc.url, { access: 'private' });
+    if (!result || result.statusCode !== 200 || !result.stream) {
+      res.status(404).json({ error: 'File not found' });
+      return;
+    }
+    res.setHeader('Content-Type', result.blob.contentType || doc.mimeType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="${doc.fileName}"`);
+    Readable.fromWeb(result.stream as never).pipe(res);
   }),
 );
 
@@ -180,8 +202,7 @@ router.delete(
   asyncHandler(async (req, res) => {
     const doc = await prisma.customerDocument.findUnique({ where: { id: req.params.docId } });
     if (doc) {
-      const filePath = path.join(UPLOADS_DIR, path.basename(doc.url));
-      fs.promises.unlink(filePath).catch(() => undefined);
+      await del(doc.url).catch(() => undefined);
       await prisma.customerDocument.delete({ where: { id: doc.id } });
     }
     res.status(204).end();
