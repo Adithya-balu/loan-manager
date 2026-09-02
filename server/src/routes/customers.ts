@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import multer from 'multer';
 import { Readable } from 'node:stream';
-import { del, get, put } from '@vercel/blob';
+import { del, get } from '@vercel/blob';
+import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
@@ -10,10 +10,12 @@ import { getSettingsMap, rollupLoan } from '../lib/loanService.js';
 
 const router = Router();
 
-// Files are buffered in memory, then uploaded to Vercel Blob (private access)
-// — Vercel Functions have a read-only filesystem, so local disk storage
-// doesn't work in production.
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+// Document uploads go straight from the browser to Vercel Blob (private
+// access) using a client-token handshake — Vercel Functions cap request
+// bodies at 4.5MB, so routing large files through this Express app (e.g. via
+// multer) fails for anything near/above that size. See POST
+// '/:id/documents/upload-token' + '/:id/documents/confirm' below.
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
 
 const customerSchema = z.object({
   name: z.string().min(1),
@@ -150,24 +152,57 @@ router.delete(
 );
 
 // Upload a document for a customer.
+// Issues a short-lived client token so the browser can upload the file
+// directly to Vercel Blob, bypassing this function's request body entirely.
 router.post(
-  '/:id/documents',
-  upload.single('file'),
+  '/:id/documents/upload-token',
   asyncHandler(async (req, res) => {
-    if (!req.file) throw new Error('No file uploaded');
-    const label = (req.body.label as string) || req.file.originalname;
-    const blob = await put(`customers/${req.params.id}/${req.file.originalname}`, req.file.buffer, {
-      access: 'private',
-      addRandomSuffix: true,
-      contentType: req.file.mimetype,
-    });
+    const customerId = req.params.id;
+    const body = req.body as HandleUploadBody;
+    try {
+      const jsonResponse = await handleUpload({
+        body,
+        request: req,
+        onBeforeGenerateToken: async (pathname) => {
+          if (!pathname.startsWith(`customers/${customerId}/`)) {
+            throw new Error('Invalid upload path for this customer');
+          }
+          return {
+            addRandomSuffix: true,
+            maximumSizeInBytes: MAX_DOCUMENT_BYTES,
+          };
+        },
+      });
+      res.json(jsonResponse);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : 'Upload authorization failed' });
+    }
+  }),
+);
+
+const confirmDocumentSchema = z.object({
+  url: z.string().url(),
+  fileName: z.string().min(1),
+  label: z.string().min(1),
+  mimeType: z.string().min(1),
+});
+
+// Called by the client after the file has already landed in Blob storage, to
+// record the document metadata against this customer.
+router.post(
+  '/:id/documents/confirm',
+  asyncHandler(async (req, res) => {
+    const data = confirmDocumentSchema.parse(req.body);
+    if (!data.url.includes(`customers/${req.params.id}/`)) {
+      throw new Error('Document does not belong to this customer');
+    }
     const doc = await prisma.customerDocument.create({
       data: {
         customerId: req.params.id,
-        label,
-        fileName: req.file.originalname,
-        url: blob.url,
-        mimeType: req.file.mimetype,
+        label: data.label,
+        fileName: data.fileName,
+        url: data.url,
+        mimeType: data.mimeType,
       },
     });
     res.status(201).json(doc);

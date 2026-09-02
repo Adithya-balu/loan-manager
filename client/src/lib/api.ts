@@ -1,3 +1,4 @@
+import { upload } from '@vercel/blob/client';
 import type {
   ActionRequiredResponse,
   AppConfig,
@@ -83,11 +84,23 @@ export const api = {
   createCustomer: (data: CustomerInput) => post<Customer>('/customers', data),
   updateCustomer: (id: string, data: CustomerInput) => put<Customer>(`/customers/${id}`, data),
   deleteCustomer: (id: string) => del(`/customers/${id}`),
-  uploadDocument: (id: string, file: File, label: string) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('label', label);
-    return request<CustomerDocument>(`/customers/${id}/documents`, { method: 'POST', body: fd });
+  uploadDocument: async (id: string, file: File, label: string) => {
+    // Uploads go straight from the browser to Vercel Blob (private access) —
+    // Vercel Functions cap request bodies at 4.5MB, so routing the file
+    // through our API would fail for anything near/above that size.
+    const mimeType = file.type || 'application/octet-stream';
+    const pathname = `customers/${id}/${Date.now()}-${file.name}`;
+    const blob = await upload(pathname, file, {
+      access: 'private',
+      handleUploadUrl: `${BASE}/customers/${id}/documents/upload-token`,
+      contentType: mimeType,
+    });
+    return post<CustomerDocument>(`/customers/${id}/documents/confirm`, {
+      url: blob.url,
+      fileName: file.name,
+      label,
+      mimeType,
+    });
   },
   deleteDocument: (id: string, docId: string) => del(`/customers/${id}/documents/${docId}`),
 
