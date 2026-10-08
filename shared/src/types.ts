@@ -60,9 +60,21 @@ export interface Customer {
   mobile: string;
   email?: string | null;
   address?: string | null;
+  photoUrl?: string | null;
+  aadhaar?: string | null;
+  location?: string | null;
   documents: CustomerDocument[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LoanDocument {
+  id: string;
+  label: string;
+  fileName: string;
+  url: string;
+  mimeType: string;
+  uploadedAt: string;
 }
 
 export interface Loan {
@@ -75,11 +87,35 @@ export interface Loan {
   installments: number;
   disbursementDate: string;
   repaymentStartDate: string;
+  disbursementMode: PaymentMode;
+  guarantorName?: string | null;
+  guarantorMobile?: string | null;
+  guarantorRelation?: string | null;
+  guarantorAddress?: string | null;
   status: LoanStatus;
   graceDaysOverride?: number | null;
   defaultThresholdDaysOverride?: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CompanyProfile {
+  id: string;
+  name: string;
+  logoUrl?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  updatedAt: string;
+}
+
+export interface SettlementQuote {
+  loanId: string;
+  asOf: string;
+  overdueDue: number;
+  remainingPrincipal: number;
+  interestToDate: number;
+  settlementAmount: number;
 }
 
 export interface Installment {

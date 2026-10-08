@@ -152,6 +152,8 @@ export function rollupLoan(
   };
 }
 
+export type DisbursementMode = 'CASH' | 'UPI' | 'BANK' | 'CHEQUE' | 'OTHER';
+
 export interface CreateLoanInput {
   customerId: string;
   principal: number;
@@ -161,6 +163,11 @@ export interface CreateLoanInput {
   installments: number;
   disbursementDate: string;
   repaymentStartDate: string;
+  disbursementMode?: DisbursementMode;
+  guarantorName?: string | null;
+  guarantorMobile?: string | null;
+  guarantorRelation?: string | null;
+  guarantorAddress?: string | null;
   graceDaysOverride?: number | null;
   defaultThresholdDaysOverride?: number | null;
 }
@@ -185,6 +192,11 @@ export async function createLoanWithSchedule(input: CreateLoanInput) {
       installments: input.installments,
       disbursementDate: new Date(input.disbursementDate),
       repaymentStartDate: new Date(input.repaymentStartDate),
+      disbursementMode: input.disbursementMode ?? 'CASH',
+      guarantorName: input.guarantorName ?? null,
+      guarantorMobile: input.guarantorMobile ?? null,
+      guarantorRelation: input.guarantorRelation ?? null,
+      guarantorAddress: input.guarantorAddress ?? null,
       graceDaysOverride: input.graceDaysOverride ?? null,
       defaultThresholdDaysOverride: input.defaultThresholdDaysOverride ?? null,
       schedule: {
@@ -503,6 +515,126 @@ export async function capitalizeInstallment(installmentId: string) {
 
 export async function markLoanDefaulted(loanId: string) {
   return prisma.loan.update({ where: { id: loanId }, data: { status: 'DEFAULTED' } });
+}
+
+export interface SettlementQuote {
+  loanId: string;
+  asOf: string;
+  /** Unpaid remaining on matured (DUE/OVERDUE) installments. */
+  overdueDue: number;
+  /** Unpaid principal component of installments not yet matured. */
+  remainingPrincipal: number;
+  /** Pro-rated interest on the remaining principal from the last due date to today. */
+  interestToDate: number;
+  /** Total early-settlement figure. */
+  settlementAmount: number;
+}
+
+/**
+ * Compute an early-settlement (foreclosure) quote for a loan as of `ref`.
+ *
+ * settlementAmount = overdueDue + remainingPrincipal + interestToDate
+ *  - overdueDue:        unpaid remaining of installments already due (matured).
+ *  - remainingPrincipal: unpaid principal slice of future (not-yet-due) installments;
+ *                        future scheduled interest is waived on early settlement.
+ *  - interestToDate:     simple daily-pro-rated interest on remainingPrincipal from the
+ *                        most recent due date up to `ref` (annualRatePct / 365 / day).
+ */
+export function computeSettlement(
+  loan: Loan & { schedule: Installment[] },
+  settings: Record<LoanFrequency, { graceDays: number; defaultThresholdDays: number }>,
+  ref: Date = today(),
+): SettlementQuote {
+  const grace = effectiveGraceDays(loan, settings);
+  const enriched = loan.schedule.map((i) => enrichInstallment(i, grace, ref));
+  const open = enriched.filter(
+    (i) => i.derivedStatus !== 'PAID' && i.derivedStatus !== 'DEFAULTED' && i.remaining > 0.005,
+  );
+
+  const refDay = dateOnly(ref);
+  let overdueDue = 0;
+  let remainingPrincipal = 0;
+  let lastDueOnOrBefore: Date | null = null;
+
+  for (const inst of open) {
+    const due = dateOnly(inst.dueDate);
+    if (due.getTime() <= refDay.getTime()) {
+      // Matured installment: whole remaining amount (principal + its interest) is owed.
+      overdueDue = round2(overdueDue + inst.remaining);
+      if (!lastDueOnOrBefore || due.getTime() > lastDueOnOrBefore.getTime()) {
+        lastDueOnOrBefore = due;
+      }
+    } else {
+      // Future installment: only the unpaid principal slice is owed on early settlement.
+      const paidTowardPrincipal = Math.max(0, inst.paidAmount - inst.interestComponent);
+      const unpaidPrincipal = Math.max(0, round2(inst.principalComponent - paidTowardPrincipal));
+      remainingPrincipal = round2(remainingPrincipal + unpaidPrincipal);
+    }
+  }
+
+  const anchor = lastDueOnOrBefore ?? dateOnly(loan.disbursementDate);
+  const daysElapsed = Math.max(0, diffDays(anchor, refDay));
+  const dailyRate = loan.annualRatePct / 100 / 365;
+  const interestToDate = round2(remainingPrincipal * dailyRate * daysElapsed);
+  const settlementAmount = round2(overdueDue + remainingPrincipal + interestToDate);
+
+  return {
+    loanId: loan.id,
+    asOf: toISODate(refDay),
+    overdueDue,
+    remainingPrincipal,
+    interestToDate,
+    settlementAmount,
+  };
+}
+
+/**
+ * Settle (pre-close) a loan: record a single settlement payment for the quoted
+ * amount, mark all open installments PAID, and close the loan.
+ */
+export async function settleLoan(
+  loanId: string,
+  opts: { date: string; mode?: DisbursementMode },
+) {
+  const ref = today();
+  return prisma.$transaction(async (tx) => {
+    const loan = await tx.loan.findUniqueOrThrow({
+      where: { id: loanId },
+      include: { schedule: { orderBy: { sequence: 'asc' } } },
+    });
+    if (loan.status !== 'ACTIVE') throw new Error('Only active loans can be settled');
+
+    const settings = await getSettingsMap();
+    const quote = computeSettlement(loan, settings, ref);
+    if (quote.settlementAmount <= 0.005) throw new Error('Nothing outstanding to settle');
+
+    const payDate = new Date(opts.date);
+    const payment = await tx.payment.create({
+      data: {
+        loanId: loan.id,
+        customerId: loan.customerId,
+        installmentId: null,
+        amount: quote.settlementAmount,
+        date: payDate,
+        mode: opts.mode ?? 'CASH',
+        note: `Settlement / foreclosure (principal ${quote.remainingPrincipal}, interest ${quote.interestToDate}, overdue ${quote.overdueDue})`,
+      },
+    });
+
+    // Close out every open installment as fully paid.
+    for (const inst of loan.schedule) {
+      if (inst.status === 'DEFAULTED') continue;
+      const remaining = round2(inst.amountDue - inst.paidAmount);
+      if (remaining <= 0.005) continue;
+      await tx.installment.update({
+        where: { id: inst.id },
+        data: { paidAmount: inst.amountDue, status: 'PAID', paidDate: inst.paidDate ?? payDate },
+      });
+    }
+
+    await tx.loan.update({ where: { id: loan.id }, data: { status: 'CLOSED' } });
+    return { payment, quote };
+  });
 }
 
 export type LoanWithRelations = Prisma.LoanGetPayload<{

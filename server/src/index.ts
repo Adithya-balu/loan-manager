@@ -1,29 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import customersRouter from './routes/customers.js';
 import loansRouter from './routes/loans.js';
 import paymentsRouter from './routes/payments.js';
 import actionsRouter from './routes/actions.js';
 import dashboardRouter from './routes/dashboard.js';
 import configRouter from './routes/config.js';
+import companyRouter from './routes/company.js';
 import authRouter from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const UPLOADS_DIR = path.resolve(__dirname, '../uploads');
-// Vercel Functions run on a read-only filesystem (except /tmp), so this local
-// uploads dir only exists for local dev. Document uploads themselves go to
-// Vercel Blob (see routes/customers.ts); this directory is kept only for
-// backwards-compatible local static serving.
-try {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-} catch {
-  // Read-only filesystem (e.g. Vercel) — safe to ignore.
-}
+import { UPLOADS_DIR } from './lib/upload.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
@@ -44,6 +31,7 @@ app.use('/api/payments', requireAuth, paymentsRouter);
 app.use('/api', requireAuth, actionsRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/config', requireAuth, configRouter);
+app.use('/api/company', requireAuth, companyRouter);
 
 // Central error handler.
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

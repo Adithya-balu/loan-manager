@@ -1,17 +1,22 @@
 import { Router } from 'express';
+import path from 'node:path';
+import fs from 'node:fs';
 import { z } from 'zod';
 import { generateSchedule } from '@loan/shared';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import {
+  computeSettlement,
   createLoanWithSchedule,
   effectiveGraceDays,
   enrichInstallment,
   getSettingsMap,
   markLoanDefaulted,
   rollupLoan,
+  settleLoan,
 } from '../lib/loanService.js';
 import { today } from '../lib/dates.js';
+import { UPLOADS_DIR, upload } from '../lib/upload.js';
 
 const router = Router();
 
@@ -24,6 +29,11 @@ const loanSchema = z.object({
   installments: z.number().int().positive(),
   disbursementDate: z.string().min(1),
   repaymentStartDate: z.string().min(1),
+  disbursementMode: z.enum(['CASH', 'UPI', 'BANK', 'CHEQUE', 'OTHER']).optional(),
+  guarantorName: z.string().optional().nullable(),
+  guarantorMobile: z.string().optional().nullable(),
+  guarantorRelation: z.string().optional().nullable(),
+  guarantorAddress: z.string().optional().nullable(),
   graceDaysOverride: z.number().int().min(0).nullable().optional(),
   defaultThresholdDaysOverride: z.number().int().min(0).nullable().optional(),
 });
@@ -82,6 +92,7 @@ router.get(
         customer: true,
         schedule: { orderBy: { sequence: 'asc' } },
         payments: { orderBy: { date: 'desc' }, include: { installment: true } },
+        documents: { orderBy: { uploadedAt: 'desc' } },
       },
     });
     const grace = effectiveGraceDays(loan, settings);
@@ -134,6 +145,11 @@ router.put(
           installments: data.installments,
           disbursementDate: new Date(data.disbursementDate),
           repaymentStartDate: new Date(data.repaymentStartDate),
+          disbursementMode: data.disbursementMode ?? 'CASH',
+          guarantorName: data.guarantorName ?? null,
+          guarantorMobile: data.guarantorMobile ?? null,
+          guarantorRelation: data.guarantorRelation ?? null,
+          guarantorAddress: data.guarantorAddress ?? null,
           graceDaysOverride: data.graceDaysOverride ?? null,
           defaultThresholdDaysOverride: data.defaultThresholdDaysOverride ?? null,
           schedule: {
@@ -166,6 +182,67 @@ router.post(
   asyncHandler(async (req, res) => {
     const loan = await markLoanDefaulted(req.params.id);
     res.json(loan);
+  }),
+);
+
+// Early-settlement (foreclosure) quote.
+router.get(
+  '/:id/settlement',
+  asyncHandler(async (req, res) => {
+    const settings = await getSettingsMap();
+    const loan = await prisma.loan.findUniqueOrThrow({
+      where: { id: req.params.id },
+      include: { schedule: { orderBy: { sequence: 'asc' } } },
+    });
+    res.json(computeSettlement(loan, settings, today()));
+  }),
+);
+
+const settleSchema = z.object({
+  date: z.string().min(1),
+  mode: z.enum(['CASH', 'UPI', 'BANK', 'CHEQUE', 'OTHER']).optional(),
+});
+
+// Execute the settlement: records payment + closes the loan.
+router.post(
+  '/:id/settlement',
+  asyncHandler(async (req, res) => {
+    const data = settleSchema.parse(req.body);
+    const result = await settleLoan(req.params.id, data);
+    res.status(201).json(result);
+  }),
+);
+
+// Upload a loan-specific document.
+router.post(
+  '/:id/documents',
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new Error('No file uploaded');
+    const label = (req.body.label as string) || req.file.originalname;
+    const doc = await prisma.loanDocument.create({
+      data: {
+        loanId: req.params.id,
+        label,
+        fileName: req.file.originalname,
+        url: `/uploads/${req.file.filename}`,
+        mimeType: req.file.mimetype,
+      },
+    });
+    res.status(201).json(doc);
+  }),
+);
+
+router.delete(
+  '/:id/documents/:docId',
+  asyncHandler(async (req, res) => {
+    const doc = await prisma.loanDocument.findUnique({ where: { id: req.params.docId } });
+    if (doc) {
+      const filePath = path.join(UPLOADS_DIR, path.basename(doc.url));
+      fs.promises.unlink(filePath).catch(() => undefined);
+      await prisma.loanDocument.delete({ where: { id: doc.id } });
+    }
+    res.status(204).end();
   }),
 );
 

@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { Readable } from 'node:stream';
+import path from 'node:path';
+import fs from 'node:fs';
 import { del, get } from '@vercel/blob';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { z } from 'zod';
@@ -7,6 +9,7 @@ import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import { computeCustomerRisk } from '../lib/riskService.js';
 import { getSettingsMap, rollupLoan } from '../lib/loanService.js';
+import { UPLOADS_DIR, upload } from '../lib/upload.js';
 
 const router = Router();
 
@@ -20,10 +23,18 @@ const MAX_DOCUMENTS_PER_CUSTOMER = 20;
 
 const customerSchema = z.object({
   name: z.string().min(1),
-  mobile: z.string().min(1),
+  mobile: z.string().regex(/^\d{10}$/, 'Mobile number must be exactly 10 digits'),
   customerNumber: z.string().optional(),
   email: z.string().email().optional().or(z.literal('')).nullable().optional(),
   address: z.string().optional().nullable(),
+  aadhaar: z
+    .string()
+    .regex(/^\d{12}$/, 'Aadhaar number must be exactly 12 digits')
+    .optional()
+    .or(z.literal(''))
+    .nullable()
+    .optional(),
+  location: z.string().optional().nullable(),
 });
 
 async function nextCustomerNumber(): Promise<string> {
@@ -61,6 +72,9 @@ router.get(
           mobile: c.mobile,
           email: c.email,
           address: c.address,
+          photoUrl: c.photoUrl,
+          aadhaar: c.aadhaar,
+          location: c.location,
           documentCount: c.documents.length,
           loanCount: c.loans.length,
           activeLoans,
@@ -118,6 +132,8 @@ router.post(
         mobile: data.mobile,
         email: data.email || null,
         address: data.address || null,
+        aadhaar: data.aadhaar || null,
+        location: data.location || null,
       },
       include: { documents: true },
     });
@@ -137,6 +153,8 @@ router.put(
         customerNumber: data.customerNumber,
         email: data.email === '' ? null : data.email,
         address: data.address,
+        aadhaar: data.aadhaar === '' ? null : data.aadhaar,
+        location: data.location,
       },
       include: { documents: true },
     });
@@ -149,6 +167,26 @@ router.delete(
   asyncHandler(async (req, res) => {
     await prisma.customer.delete({ where: { id: req.params.id } });
     res.status(204).end();
+  }),
+);
+
+// Upload / replace a customer's profile photo.
+router.post(
+  '/:id/photo',
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw new Error('No file uploaded');
+    const existing = await prisma.customer.findUnique({ where: { id: req.params.id } });
+    if (existing?.photoUrl) {
+      const prev = path.join(UPLOADS_DIR, path.basename(existing.photoUrl));
+      fs.promises.unlink(prev).catch(() => undefined);
+    }
+    const customer = await prisma.customer.update({
+      where: { id: req.params.id },
+      data: { photoUrl: `/uploads/${req.file.filename}` },
+      include: { documents: true },
+    });
+    res.status(201).json(customer);
   }),
 );
 

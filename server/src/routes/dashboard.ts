@@ -87,13 +87,22 @@ router.get(
     }
     const disbursedByMonth: Record<string, number> = {};
     const collectedByMonth: Record<string, number> = {};
+    const revenueByMonth: Record<string, number> = {};
     for (const m of months) {
       disbursedByMonth[m] = 0;
       collectedByMonth[m] = 0;
+      revenueByMonth[m] = 0;
     }
     for (const loan of loans) {
       const k = monthKey(dateOnly(loan.disbursementDate));
       if (k in disbursedByMonth) disbursedByMonth[k] += loan.principal;
+      // Revenue = interest earned, booked in the month the installment was paid.
+      for (const inst of loan.schedule) {
+        if (inst.status === 'PAID' && inst.paidDate) {
+          const rk = monthKey(dateOnly(inst.paidDate));
+          if (rk in revenueByMonth) revenueByMonth[rk] += inst.interestComponent;
+        }
+      }
     }
     for (const p of payments) {
       const k = monthKey(dateOnly(p.date));
@@ -103,6 +112,7 @@ router.get(
       month: m,
       disbursed: round2(disbursedByMonth[m]),
       collected: round2(collectedByMonth[m]),
+      revenue: round2(revenueByMonth[m]),
     }));
 
     // Top-risk customers (lowest score = riskiest).

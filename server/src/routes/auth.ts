@@ -58,6 +58,29 @@ router.get(
   }),
 );
 
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+// Change the authenticated user's own password.
+router.post(
+  '/change-password',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
+    const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+    if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(newPassword) },
+    });
+    res.json({ ok: true });
+  }),
+);
+
 const createUserSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),

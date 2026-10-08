@@ -68,6 +68,9 @@ model Customer {
   mobile         String
   email          String?
   address        String?
+  photoUrl       String?
+  aadhaar        String?
+  location       String?
   documents      CustomerDocument[]
   loans          Loan[]
   payments       Payment[]
@@ -97,13 +100,30 @@ model Loan {
   installments                 Int
   disbursementDate             DateTime
   repaymentStartDate           DateTime
+  disbursementMode             PaymentMode    @default(CASH)
+  guarantorName                String?
+  guarantorMobile              String?
+  guarantorRelation            String?
+  guarantorAddress             String?
   status                       LoanStatus     @default(ACTIVE)
   graceDaysOverride            Int?
   defaultThresholdDaysOverride Int?
   schedule                     Installment[]
+  documents                    LoanDocument[]
   payments                     Payment[]
   createdAt                    DateTime       @default(now())
   updatedAt                    DateTime       @updatedAt
+}
+
+model LoanDocument {
+  id         String   @id @default(cuid())
+  loanId     String
+  loan       Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  label      String
+  fileName   String
+  url        String
+  mimeType   String
+  uploadedAt DateTime @default(now())
 }
 
 model Installment {
@@ -147,4 +167,14 @@ model LoanTypeSetting {
   frequency            LoanFrequency @id
   graceDays            Int
   defaultThresholdDays Int
+}
+
+model CompanyProfile {
+  id        String   @id @default("default")
+  name      String
+  logoUrl   String?
+  address   String?
+  phone     String?
+  email     String?
+  updatedAt DateTime @updatedAt
 }
