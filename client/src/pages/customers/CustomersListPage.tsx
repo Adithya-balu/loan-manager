@@ -41,7 +41,7 @@ export function CustomersListPage() {
       />
 
       <Card>
-        <div className="border-b border-slate-100 p-3">
+        <div className="border-b border-slate-100 p-3 dark:border-slate-700">
           <Input
             placeholder="Search by name, number or mobile…"
             value={query}
@@ -79,7 +79,7 @@ export function CustomersListPage() {
               {filtered.map((c) => (
                 <TR key={c.id} onClick={() => navigate(`/customers/${c.id}`)}>
                   <TD>
-                    <div className="font-medium text-slate-800">{c.name}</div>
+                    <div className="font-medium text-slate-800 dark:text-slate-100">{c.name}</div>
                     <div className="text-xs text-slate-400">{c.customerNumber}</div>
                   </TD>
                   <TD>{c.mobile}</TD>

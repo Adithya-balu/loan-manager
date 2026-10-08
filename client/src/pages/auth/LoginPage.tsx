@@ -31,14 +31,14 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-900">
+      <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
           <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-600 text-base font-bold text-white">
             LM
           </span>
-          <h1 className="text-lg font-semibold text-slate-800">Loan Manager</h1>
-          <p className="text-sm text-slate-500">Sign in to continue</p>
+          <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Loan Manager</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Sign in to continue</p>
         </div>
         <form className="flex flex-col gap-4" onSubmit={onSubmit}>
           <Field label="Email" htmlFor="email" required>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -15,6 +15,8 @@ const EMPTY: CustomerInput = {
   customerNumber: '',
   email: '',
   address: '',
+  aadhaar: '',
+  location: '',
 };
 
 export function CustomerFormPage() {
@@ -27,6 +29,9 @@ export function CustomerFormPage() {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -41,7 +46,10 @@ export function CustomerFormPage() {
           customerNumber: res.customer.customerNumber,
           email: res.customer.email ?? '',
           address: res.customer.address ?? '',
+          aadhaar: res.customer.aadhaar ?? '',
+          location: res.customer.location ?? '',
         });
+        setPhotoPreview(res.customer.photoUrl ?? null);
       })
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => !cancelled && setLoading(false));
@@ -54,11 +62,18 @@ export function CustomerFormPage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  function onPickPhoto(file: File) {
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
   function validate(): boolean {
     const next: Record<string, string> = {};
     if (!form.name.trim()) next.name = 'Name is required';
-    if (!form.mobile.trim()) next.mobile = 'Mobile is required';
+    if (!/^\d{10}$/.test(form.mobile.trim())) next.mobile = 'Mobile must be exactly 10 digits';
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) next.email = 'Invalid email';
+    if (form.aadhaar && !/^\d{12}$/.test(form.aadhaar.trim()))
+      next.aadhaar = 'Aadhaar must be exactly 12 digits';
     setErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -74,16 +89,19 @@ export function CustomerFormPage() {
         customerNumber: form.customerNumber?.trim() || undefined,
         email: form.email?.trim() || null,
         address: form.address?.trim() || null,
+        aadhaar: form.aadhaar?.trim() || null,
+        location: form.location?.trim() || null,
       };
-      if (isEdit && id) {
-        await api.updateCustomer(id, payload);
-        toast.success('Customer updated');
-        navigate(`/customers/${id}`);
-      } else {
-        const created = await api.createCustomer(payload);
-        toast.success('Customer created');
-        navigate(`/customers/${created.id}`);
+      const saved = isEdit && id ? await api.updateCustomer(id, payload) : await api.createCustomer(payload);
+      if (photoFile) {
+        try {
+          await api.uploadCustomerPhoto(saved.id, photoFile);
+        } catch {
+          toast.error('Customer saved, but photo upload failed');
+        }
       }
+      toast.success(isEdit ? 'Customer updated' : 'Customer created');
+      navigate(`/customers/${saved.id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -99,12 +117,42 @@ export function CustomerFormPage() {
       <Card className="max-w-2xl">
         <CardBody>
           <form onSubmit={onSubmit} className="space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800">
+                {photoPreview ? (
+                  <img src={photoPreview} alt="Customer" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-2xl">☺</span>
+                )}
+              </div>
+              <div>
+                <Button type="button" variant="secondary" onClick={() => photoRef.current?.click()}>
+                  {photoPreview ? 'Change photo' : 'Upload photo'}
+                </Button>
+                <input
+                  ref={photoRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onPickPhoto(file);
+                  }}
+                />
+                <p className="mt-1 text-xs text-slate-400">JPG/PNG, up to 15 MB.</p>
+              </div>
+            </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Name" required error={errors.name}>
                 <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
               </Field>
-              <Field label="Mobile" required error={errors.mobile}>
-                <Input value={form.mobile} onChange={(e) => set('mobile', e.target.value)} />
+              <Field label="Mobile" required error={errors.mobile} hint="10-digit mobile number">
+                <Input
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={form.mobile}
+                  onChange={(e) => set('mobile', e.target.value.replace(/\D/g, ''))}
+                />
               </Field>
               <Field
                 label="Customer Number"
@@ -120,6 +168,21 @@ export function CustomerFormPage() {
                   type="email"
                   value={form.email ?? ''}
                   onChange={(e) => set('email', e.target.value)}
+                />
+              </Field>
+              <Field label="Aadhaar Number" error={errors.aadhaar} hint="12-digit Aadhaar (optional)">
+                <Input
+                  inputMode="numeric"
+                  maxLength={12}
+                  value={form.aadhaar ?? ''}
+                  onChange={(e) => set('aadhaar', e.target.value.replace(/\D/g, ''))}
+                />
+              </Field>
+              <Field label="Location">
+                <Input
+                  value={form.location ?? ''}
+                  onChange={(e) => set('location', e.target.value)}
+                  placeholder="City / area / village"
                 />
               </Field>
             </div>

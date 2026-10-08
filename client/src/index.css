@@ -1,7 +1,19 @@
 @import 'tailwindcss';
 
+/* Enable class-based dark mode (Tailwind v4). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   color-scheme: light;
+  /* Theme-aware colors for Recharts (which can't read Tailwind classes). */
+  --chart-grid: #eef2f7;
+  --chart-axis: #94a3b8;
+}
+
+html.dark {
+  color-scheme: dark;
+  --chart-grid: #1e293b;
+  --chart-axis: #64748b;
 }
 
 html,
@@ -17,12 +29,21 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+html.dark body {
+  background-color: #0f172a;
+  color: #e2e8f0;
 }
 
 /* Thin, unobtrusive scrollbars for data-dense tables. */
 * {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
+}
+html.dark * {
+  scrollbar-color: #334155 transparent;
 }
 *::-webkit-scrollbar {
   width: 8px;
@@ -31,4 +52,7 @@ body {
 *::-webkit-scrollbar-thumb {
   background-color: #cbd5e1;
   border-radius: 9999px;
+}
+html.dark *::-webkit-scrollbar-thumb {
+  background-color: #334155;
 }

@@ -71,6 +71,13 @@ export function CustomerDetailPage() {
       <PageHeader
         title={
           <span className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-50 text-slate-300 dark:border-slate-700 dark:bg-slate-800">
+              {customer.photoUrl ? (
+                <img src={customer.photoUrl} alt={customer.name} className="h-full w-full object-cover" />
+              ) : (
+                <span>☺</span>
+              )}
+            </span>
             {customer.name}
             <RiskBadge risk={risk} />
           </span>
@@ -93,9 +100,19 @@ export function CustomerDetailPage() {
         }
       />
 
-      {customer.address && (
-        <p className="mb-4 text-sm text-slate-500">{customer.address}</p>
-      )}
+      <div className="mb-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+        {customer.location && (
+          <span>
+            <span className="text-slate-400 dark:text-slate-500">Location:</span> {customer.location}
+          </span>
+        )}
+        {customer.aadhaar && (
+          <span>
+            <span className="text-slate-400 dark:text-slate-500">Aadhaar:</span> {customer.aadhaar}
+          </span>
+        )}
+        {customer.address && <span>{customer.address}</span>}
+      </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Disbursed" value={formatCurrency(totals.disbursed)} />
@@ -146,7 +163,7 @@ export function CustomerDetailPage() {
           <CardBody className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <input
-                className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 placeholder="Label (optional)"
                 value={docLabel}
                 onChange={(e) => setDocLabel(e.target.value)}
@@ -154,7 +171,7 @@ export function CustomerDetailPage() {
               <input
                 ref={fileRef}
                 type="file"
-                className="text-sm text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700"
+                className="text-sm text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 dark:text-slate-300"
                 disabled={uploading}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -166,7 +183,7 @@ export function CustomerDetailPage() {
             {customer.documents.length === 0 ? (
               <p className="py-4 text-center text-sm text-slate-400">No documents uploaded.</p>
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                 {customer.documents.map((d) => (
                   <li key={d.id} className="flex items-center justify-between py-2">
                     <div>

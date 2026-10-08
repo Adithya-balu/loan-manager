@@ -65,19 +65,19 @@ export function DashboardPage() {
 
       {actionRequiredCount > 0 && (
         <Link to="/action-required" className="mb-6 block">
-          <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-5 py-3">
+          <div className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50 px-5 py-3 dark:border-rose-900 dark:bg-rose-950/40">
             <div className="flex items-center gap-3">
               <span className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-500 text-sm font-bold text-white">
                 {actionRequiredCount}
               </span>
               <div>
-                <p className="text-sm font-semibold text-rose-800">Action required</p>
-                <p className="text-xs text-rose-600">
+                <p className="text-sm font-semibold text-rose-800 dark:text-rose-300">Action required</p>
+                <p className="text-xs text-rose-600 dark:text-rose-400">
                   Overdue installments past grace and loans eligible to be defaulted.
                 </p>
               </div>
             </div>
-            <span className="text-sm font-medium text-rose-700">Review →</span>
+            <span className="text-sm font-medium text-rose-700 dark:text-rose-400">Review →</span>
           </div>
         </Link>
       )}
@@ -120,16 +120,16 @@ export function DashboardPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Disbursed vs Collected" subtitle="Last 6 months" />
+          <CardHeader title="Revenue" subtitle="Interest earned · last 6 months" />
           <CardBody>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trendData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="var(--chart-axis)" />
                   <YAxis
                     tick={{ fontSize: 12 }}
-                    stroke="#94a3b8"
+                    stroke="var(--chart-axis)"
                     tickFormatter={(v) => formatCompactCurrency(v as number)}
                     width={70}
                   />
@@ -137,16 +137,8 @@ export function DashboardPage() {
                   <Legend />
                   <Line
                     type="monotone"
-                    dataKey="disbursed"
-                    name="Disbursed"
-                    stroke="#6366f1"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="collected"
-                    name="Collected"
+                    dataKey="revenue"
+                    name="Revenue (interest earned)"
                     stroke="#10b981"
                     strokeWidth={2}
                     dot={false}
@@ -163,11 +155,11 @@ export function DashboardPage() {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={portfolioData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="#94a3b8" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="var(--chart-axis)" />
                   <YAxis
                     tick={{ fontSize: 12 }}
-                    stroke="#94a3b8"
+                    stroke="var(--chart-axis)"
                     tickFormatter={(v) => formatCompactCurrency(v as number)}
                     width={70}
                   />
@@ -205,10 +197,10 @@ export function DashboardPage() {
               <Link
                 key={c.id}
                 to={`/customers/${c.id}`}
-                className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-slate-50"
+                className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-slate-50 dark:hover:bg-slate-700/50"
               >
                 <div>
-                  <p className="text-sm font-medium text-slate-800">{c.name}</p>
+                  <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{c.name}</p>
                   <p className="text-xs text-slate-400">{c.customerNumber}</p>
                 </div>
                 <RiskBadge risk={c.risk} />
@@ -234,7 +226,7 @@ export function DashboardPage() {
                 </span>
               </div>
             ))}
-            <div className="border-t border-slate-100 pt-3 text-sm text-slate-500">
+            <div className="border-t border-slate-100 pt-3 text-sm text-slate-500 dark:border-slate-700">
               {kpis.totalCustomers} customers total
             </div>
           </CardBody>

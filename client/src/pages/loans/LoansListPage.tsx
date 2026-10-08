@@ -44,7 +44,7 @@ export function LoansListPage() {
       />
 
       <Card>
-        <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3">
+        <div className="flex flex-wrap gap-2 border-b border-slate-100 p-3 dark:border-slate-700">
           <Input
             placeholder="Search by customer…"
             value={query}
@@ -91,7 +91,7 @@ export function LoansListPage() {
               {filtered.map((l) => (
                 <TR key={l.id} onClick={() => navigate(`/loans/${l.id}`)}>
                   <TD>
-                    <div className="font-medium text-slate-800">{l.customer.name}</div>
+                    <div className="font-medium text-slate-800 dark:text-slate-100">{l.customer.name}</div>
                     <div className="text-xs text-slate-400">{l.customer.customerNumber}</div>
                   </TD>
                   <TD>

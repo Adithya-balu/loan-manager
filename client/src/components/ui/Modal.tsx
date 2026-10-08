@@ -31,13 +31,15 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40" onClick={onClose} />
-      <div className={`relative z-10 w-full ${width} rounded-xl bg-white shadow-xl`}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+      <div className="absolute inset-0 bg-slate-900/40 dark:bg-black/60" onClick={onClose} />
+      <div
+        className={`relative z-10 w-full ${width} rounded-xl bg-white shadow-xl dark:bg-slate-800`}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{title}</h3>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200"
             aria-label="Close"
           >
             ✕
@@ -45,7 +47,9 @@ export function Modal({
         </div>
         <div className="px-5 py-4">{children}</div>
         {footer && (
-          <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">{footer}</div>
+          <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-700">
+            {footer}
+          </div>
         )}
       </div>
     </div>
@@ -88,7 +92,7 @@ export function ConfirmDialog({
         </>
       }
     >
-      <div className="text-sm text-slate-600">{message}</div>
+      <div className="text-sm text-slate-600 dark:text-slate-300">{message}</div>
     </Modal>
   );
 }

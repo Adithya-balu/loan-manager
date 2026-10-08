@@ -14,6 +14,9 @@ import { PaymentFormPage } from './pages/payments/PaymentFormPage';
 import { TodayCollectionPage } from './pages/collections/TodayCollectionPage';
 import { ActionRequiredPage } from './pages/actions/ActionRequiredPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
+import { ReportsPage } from './pages/reports/ReportsPage';
+import { CompanyProfilePage } from './pages/company/CompanyProfilePage';
+import { AccountPage } from './pages/account/AccountPage';
 
 export default function App() {
   return (
@@ -34,8 +37,11 @@ export default function App() {
           <Route path="repayments/new" element={<PaymentFormPage />} />
           <Route path="collections/today" element={<TodayCollectionPage />} />
           <Route path="action-required" element={<ActionRequiredPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="account" element={<AccountPage />} />
           <Route element={<ProtectedRoute roles={['ADMIN']} />}>
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="company" element={<CompanyProfilePage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

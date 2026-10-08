@@ -5,12 +5,12 @@ import { LOAN_STATUS_TONE, RISK_TONE, STATUS_TONE } from '../../lib/format';
 type Tone = 'gray' | 'blue' | 'green' | 'amber' | 'red' | 'indigo';
 
 const TONE_CLASSES: Record<Tone, string> = {
-  gray: 'bg-slate-100 text-slate-600',
-  blue: 'bg-sky-100 text-sky-700',
-  green: 'bg-emerald-100 text-emerald-700',
-  amber: 'bg-amber-100 text-amber-700',
-  red: 'bg-rose-100 text-rose-700',
-  indigo: 'bg-indigo-100 text-indigo-700',
+  gray: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+  blue: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300',
+  green: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300',
+  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+  red: 'bg-rose-100 text-rose-700 dark:bg-rose-900/50 dark:text-rose-300',
+  indigo: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300',
 };
 
 export function Badge({ tone = 'gray', children }: { tone?: Tone; children: ReactNode }) {

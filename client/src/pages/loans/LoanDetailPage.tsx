@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
-import { Card, CardHeader, StatCard } from '../../components/ui/Card';
+import { Card, CardBody, CardHeader, StatCard } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { LoanStatusBadge, StatusBadge } from '../../components/ui/Badge';
 import { ConfirmDialog } from '../../components/ui/Modal';
@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/ui/Feedba
 import { TBody, TD, TH, THead, TR, Table } from '../../components/ui/Table';
 import { useToast } from '../../components/ui/Toast';
 import { PaymentModal, type PaymentEditTarget, type PaymentPrefill } from '../../components/PaymentModal';
+import { SettlementModal } from '../../components/SettlementModal';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
 import { FREQUENCY_LABEL, formatCurrency, formatDate, toDateInput } from '../../lib/format';
@@ -30,6 +31,10 @@ export function LoanDetailPage() {
   const [defaultLoanOpen, setDefaultLoanOpen] = useState(false);
   const [defaultBusy, setDefaultBusy] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [settleOpen, setSettleOpen] = useState(false);
+  const docFileRef = useRef<HTMLInputElement>(null);
+  const [docLabel, setDocLabel] = useState('');
+  const [docUploading, setDocUploading] = useState(false);
 
   if (loading) return <LoadingState />;
   if (error || !data) return <ErrorState message={error ?? 'Not found'} onRetry={reload} />;
@@ -114,6 +119,31 @@ export function LoanDetailPage() {
     }
   }
 
+  async function onUploadDoc(file: File) {
+    setDocUploading(true);
+    try {
+      await api.uploadLoanDocument(id, file, docLabel.trim() || file.name);
+      toast.success('Document uploaded');
+      setDocLabel('');
+      if (docFileRef.current) docFileRef.current.value = '';
+      reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Upload failed');
+    } finally {
+      setDocUploading(false);
+    }
+  }
+
+  async function onDeleteDoc(docId: string) {
+    try {
+      await api.deleteLoanDocument(id, docId);
+      toast.success('Document removed');
+      reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -133,6 +163,11 @@ export function LoanDetailPage() {
             {data.status === 'ACTIVE' && (
               <Button onClick={() => openPayment(undefined)}>+ Record Payment</Button>
             )}
+            {data.status === 'ACTIVE' && (
+              <Button variant="secondary" onClick={() => setSettleOpen(true)}>
+                Pre-close / Settle
+              </Button>
+            )}
             {rollup.loanDefaultEligible && (
               <Button variant="danger" onClick={() => setDefaultLoanOpen(true)}>
                 Mark Loan Defaulted
@@ -151,7 +186,7 @@ export function LoanDetailPage() {
       />
 
       {rollup.loanDefaultEligible && (
-        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           No payment for {rollup.lastPaymentDate ? `since ${formatDate(rollup.lastPaymentDate)}` : 'a while'}
           . This loan has crossed its default threshold and can be marked defaulted.
         </div>
@@ -176,6 +211,92 @@ export function LoanDetailPage() {
           value={`${rollup.paidInstallments} / ${data.installments}`}
         />
         <StatCard label="Next Due" value={formatDate(rollup.nextDueDate)} hint={`Grace: ${data.effectiveGraceDays} days`} />
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader title="Loan Details" />
+          <CardBody>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <dt className="text-slate-400 dark:text-slate-500">Disbursement Mode</dt>
+              <dd className="text-slate-700 dark:text-slate-200">{data.disbursementMode}</dd>
+              <dt className="text-slate-400 dark:text-slate-500">Disbursed On</dt>
+              <dd className="text-slate-700 dark:text-slate-200">{formatDate(data.disbursementDate)}</dd>
+              {data.guarantorName && (
+                <>
+                  <dt className="text-slate-400 dark:text-slate-500">Guarantor</dt>
+                  <dd className="text-slate-700 dark:text-slate-200">
+                    {data.guarantorName}
+                    {data.guarantorRelation ? ` (${data.guarantorRelation})` : ''}
+                  </dd>
+                </>
+              )}
+              {data.guarantorMobile && (
+                <>
+                  <dt className="text-slate-400 dark:text-slate-500">Guarantor Mobile</dt>
+                  <dd className="text-slate-700 dark:text-slate-200">{data.guarantorMobile}</dd>
+                </>
+              )}
+              {data.guarantorAddress && (
+                <>
+                  <dt className="text-slate-400 dark:text-slate-500">Guarantor Address</dt>
+                  <dd className="text-slate-700 dark:text-slate-200">{data.guarantorAddress}</dd>
+                </>
+              )}
+            </dl>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Loan Documents" subtitle="Loan-specific files" />
+          <CardBody className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                placeholder="Label (optional)"
+                value={docLabel}
+                onChange={(e) => setDocLabel(e.target.value)}
+              />
+              <input
+                ref={docFileRef}
+                type="file"
+                className="text-sm text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 dark:text-slate-300"
+                disabled={docUploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void onUploadDoc(file);
+                }}
+              />
+              {docUploading && <span className="text-xs text-slate-400">Uploading…</span>}
+            </div>
+            {data.documents.length === 0 ? (
+              <p className="py-4 text-center text-sm text-slate-400">No documents uploaded.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+                {data.documents.map((d) => (
+                  <li key={d.id} className="flex items-center justify-between py-2">
+                    <div>
+                      <a
+                        href={d.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                      >
+                        {d.label}
+                      </a>
+                      <p className="text-xs text-slate-400">
+                        {d.fileName} · {formatDate(d.uploadedAt)}
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => onDeleteDoc(d.id)}>
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
       </div>
 
       <Card className="mt-6">
@@ -294,6 +415,14 @@ export function LoanDetailPage() {
         prefill={payPrefill}
         editTarget={editingPayment}
         subtitle={`${data.customer.name} · outstanding ${formatCurrency(rollup.outstanding)}`}
+        onSuccess={reload}
+      />
+
+      <SettlementModal
+        open={settleOpen}
+        onClose={() => setSettleOpen(false)}
+        loanId={id}
+        customerName={data.customer.name}
         onSuccess={reload}
       />
 

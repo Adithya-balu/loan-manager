@@ -91,7 +91,7 @@ export function TodayCollectionPage() {
                           className="text-left"
                           onClick={() => navigate(`/customers/${item.customerId}`)}
                         >
-                          <div className="font-medium text-slate-800 hover:text-indigo-600">
+                          <div className="font-medium text-slate-800 hover:text-indigo-600 dark:text-slate-100">
                             {item.customerName}
                           </div>
                           <div className="text-xs text-slate-400">{item.customerNumber}</div>

@@ -73,7 +73,7 @@ export function PaymentsListPage() {
       />
 
       <Card>
-        <div className="flex items-center justify-between gap-2 border-b border-slate-100 p-3">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 p-3 dark:border-slate-700">
           <Input
             placeholder="Search by customer…"
             value={query}
@@ -115,7 +115,7 @@ export function PaymentsListPage() {
                 <TR key={p.id} onClick={() => navigate(`/loans/${p.loanId}`)}>
                   <TD>{formatDate(p.date)}</TD>
                   <TD>
-                    <div className="font-medium text-slate-800">{p.customer.name}</div>
+                    <div className="font-medium text-slate-800 dark:text-slate-100">{p.customer.name}</div>
                     <div className="text-xs text-slate-400">{p.customer.customerNumber}</div>
                   </TD>
                   <TD>{FREQUENCY_LABEL[p.loan.frequency]}</TD>

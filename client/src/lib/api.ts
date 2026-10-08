@@ -4,6 +4,8 @@ import type {
   AppConfig,
   AuthUser,
   CapitalizeResult,
+  CompanyInput,
+  CompanyProfile,
   Customer,
   CustomerDetail,
   CustomerDocument,
@@ -12,6 +14,7 @@ import type {
   DashboardResponse,
   Loan,
   LoanDetail,
+  LoanDocument,
   LoanInput,
   LoanListItem,
   Payment,
@@ -19,6 +22,8 @@ import type {
   PaymentListItem,
   PaymentMode,
   ScheduleSummary,
+  SettlementQuote,
+  SettlementResult,
   TodayCollectionResponse,
 } from './types';
 
@@ -71,10 +76,21 @@ export const api = {
   login: (email: string, password: string) => post<AuthUser>('/auth/login', { email, password }),
   logout: () => post<void>('/auth/logout'),
   me: () => get<AuthUser>('/auth/me'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    post<{ ok: true }>('/auth/change-password', { currentPassword, newPassword }),
 
   // Config
   getConfig: () => get<AppConfig>('/config'),
   updateConfig: (loanTypes: AppConfig['loanTypes']) => put<{ ok: true }>('/config', { loanTypes }),
+
+  // Company profile
+  getCompany: () => get<CompanyProfile>('/company'),
+  updateCompany: (data: CompanyInput) => put<CompanyProfile>('/company', data),
+  uploadCompanyLogo: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return request<CompanyProfile>('/company/logo', { method: 'POST', body: fd });
+  },
 
   // Dashboard
   getDashboard: () => get<DashboardResponse>('/dashboard'),
@@ -104,6 +120,11 @@ export const api = {
     });
   },
   deleteDocument: (id: string, docId: string) => del(`/customers/${id}/documents/${docId}`),
+  uploadCustomerPhoto: (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return request<Customer>(`/customers/${id}/photo`, { method: 'POST', body: fd });
+  },
 
   // Loans
   listLoans: () => get<LoanListItem[]>('/loans'),
@@ -114,6 +135,16 @@ export const api = {
   updateLoan: (id: string, data: LoanInput) => put<Loan>(`/loans/${id}`, data),
   deleteLoan: (id: string) => del(`/loans/${id}`),
   markLoanDefaulted: (id: string) => post<Loan>(`/loans/${id}/default`),
+  getSettlement: (id: string) => get<SettlementQuote>(`/loans/${id}/settlement`),
+  settleLoan: (id: string, data: { date: string; mode?: PaymentInput['mode'] }) =>
+    post<SettlementResult>(`/loans/${id}/settlement`, data),
+  uploadLoanDocument: (id: string, file: File, label: string) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('label', label);
+    return request<LoanDocument>(`/loans/${id}/documents`, { method: 'POST', body: fd });
+  },
+  deleteLoanDocument: (id: string, docId: string) => del(`/loans/${id}/documents/${docId}`),
 
   // Payments
   listPayments: (params?: { loanId?: string; customerId?: string }) => {

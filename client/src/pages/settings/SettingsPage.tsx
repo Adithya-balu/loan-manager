@@ -56,14 +56,14 @@ export function SettingsPage() {
         />
         <CardBody>
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-4 border-b border-slate-100 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <div className="grid grid-cols-3 gap-4 border-b border-slate-100 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:border-slate-700 dark:text-slate-400">
               <span>Loan Type</span>
               <span>Grace Days</span>
               <span>Default Threshold (days)</span>
             </div>
             {rows.map((row, i) => (
               <div key={row.frequency} className="grid grid-cols-3 items-center gap-4">
-                <span className="text-sm font-medium text-slate-800">
+                <span className="text-sm font-medium text-slate-800 dark:text-slate-100">
                   {FREQUENCY_LABEL[row.frequency]}
                 </span>
                 <Input
@@ -84,7 +84,7 @@ export function SettingsPage() {
             ))}
           </div>
 
-          <div className="mt-6 space-y-1 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
+          <div className="mt-6 space-y-1 rounded-lg bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-900/50 dark:text-slate-400">
             <p>
               <strong>Grace days</strong> — how long after a due date a late payment is tolerated
               before the installment becomes "action required".

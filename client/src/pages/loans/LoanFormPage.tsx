@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { INTEREST_METHODS, LOAN_FREQUENCIES } from '@loan/shared';
+import { INTEREST_METHODS, LOAN_FREQUENCIES, PAYMENT_MODES } from '@loan/shared';
 import { PageHeader } from '../../components/PageHeader';
 import { Card, CardBody, CardHeader } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -8,10 +8,17 @@ import { RiskBadge } from '../../components/ui/Badge';
 import { Field, Input, Select } from '../../components/ui/Field';
 import { LoadingState, Spinner } from '../../components/ui/Feedback';
 import { useToast } from '../../components/ui/Toast';
+import { CustomerQuickCreate } from '../../components/CustomerQuickCreate';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
 import { FREQUENCY_LABEL, formatCurrency, formatDate, todayISO, toDateInput } from '../../lib/format';
-import type { CustomerListItem, InterestMethod, LoanFrequency, ScheduleSummary } from '../../lib/types';
+import type {
+  CustomerListItem,
+  InterestMethod,
+  LoanFrequency,
+  PaymentMode,
+  ScheduleSummary,
+} from '../../lib/types';
 
 interface FormState {
   customerId: string;
@@ -22,6 +29,11 @@ interface FormState {
   installments: string;
   disbursementDate: string;
   repaymentStartDate: string;
+  disbursementMode: PaymentMode;
+  guarantorName: string;
+  guarantorMobile: string;
+  guarantorRelation: string;
+  guarantorAddress: string;
   graceDaysOverride: string;
   defaultThresholdDaysOverride: string;
 }
@@ -35,6 +47,11 @@ const initialForm = (customerId = ''): FormState => ({
   installments: '',
   disbursementDate: todayISO(),
   repaymentStartDate: todayISO(),
+  disbursementMode: 'CASH',
+  guarantorName: '',
+  guarantorMobile: '',
+  guarantorRelation: '',
+  guarantorAddress: '',
   graceDaysOverride: '',
   defaultThresholdDaysOverride: '',
 });
@@ -46,11 +63,12 @@ export function LoanFormPage() {
   const navigate = useNavigate();
   const toast = useToast();
 
-  const { data: customers } = useApi(() => api.listCustomers(), []);
+  const { data: customers, reload: reloadCustomers } = useApi(() => api.listCustomers(), []);
   const [form, setForm] = useState<FormState>(initialForm(searchParams.get('customerId') ?? ''));
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [locked, setLocked] = useState(false);
+  const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [preview, setPreview] = useState<ScheduleSummary | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -72,6 +90,11 @@ export function LoanFormPage() {
           installments: String(loan.installments),
           disbursementDate: toDateInput(loan.disbursementDate),
           repaymentStartDate: toDateInput(loan.repaymentStartDate),
+          disbursementMode: loan.disbursementMode ?? 'CASH',
+          guarantorName: loan.guarantorName ?? '',
+          guarantorMobile: loan.guarantorMobile ?? '',
+          guarantorRelation: loan.guarantorRelation ?? '',
+          guarantorAddress: loan.guarantorAddress ?? '',
           graceDaysOverride: loan.graceDaysOverride?.toString() ?? '',
           defaultThresholdDaysOverride: loan.defaultThresholdDaysOverride?.toString() ?? '',
         });
@@ -170,6 +193,11 @@ export function LoanFormPage() {
         installments: Number(form.installments),
         disbursementDate: form.disbursementDate,
         repaymentStartDate: form.repaymentStartDate,
+        disbursementMode: form.disbursementMode,
+        guarantorName: form.guarantorName.trim() || null,
+        guarantorMobile: form.guarantorMobile.trim() || null,
+        guarantorRelation: form.guarantorRelation.trim() || null,
+        guarantorAddress: form.guarantorAddress.trim() || null,
         graceDaysOverride:
           form.graceDaysOverride.trim() === '' ? null : Number(form.graceDaysOverride),
         defaultThresholdDaysOverride:
@@ -200,7 +228,7 @@ export function LoanFormPage() {
       <PageHeader title={isEdit ? 'Edit Loan' : 'New Loan'} />
 
       {locked && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
           Payments have already been recorded on this loan, so its terms are locked. Record
           repayments from the loan detail page instead.
         </div>
@@ -211,22 +239,33 @@ export function LoanFormPage() {
           <CardHeader title="Loan Terms" />
           <CardBody className="space-y-4">
             <Field label="Customer" required>
-              <Select
-                value={form.customerId}
-                onChange={(e) => set('customerId', e.target.value)}
-                disabled={locked}
-              >
-                <option value="">Select a customer…</option>
-                {customers?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.customerNumber})
-                  </option>
-                ))}
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={form.customerId}
+                  onChange={(e) => set('customerId', e.target.value)}
+                  disabled={locked}
+                >
+                  <option value="">Select a customer…</option>
+                  {customers?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.customerNumber})
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="shrink-0"
+                  disabled={locked}
+                  onClick={() => setQuickCreateOpen(true)}
+                >
+                  + New
+                </Button>
+              </div>
             </Field>
             {selectedCustomer && (
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                <span className="text-slate-500">Customer risk</span>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/50">
+                <span className="text-slate-500 dark:text-slate-400">Customer risk</span>
                 <RiskBadge risk={selectedCustomer.risk} />
               </div>
             )}
@@ -304,9 +343,60 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
+              <Field label="Disbursement Mode" hint="How the principal was paid out">
+                <Select
+                  value={form.disbursementMode}
+                  onChange={(e) => set('disbursementMode', e.target.value as PaymentMode)}
+                  disabled={locked}
+                >
+                  {PAYMENT_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4">
+            <div className="border-t border-slate-100 pt-4 dark:border-slate-700">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Guarantor (optional)
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Guarantor Name">
+                  <Input
+                    value={form.guarantorName}
+                    onChange={(e) => set('guarantorName', e.target.value)}
+                    disabled={locked}
+                  />
+                </Field>
+                <Field label="Guarantor Mobile">
+                  <Input
+                    inputMode="numeric"
+                    value={form.guarantorMobile}
+                    onChange={(e) => set('guarantorMobile', e.target.value.replace(/\D/g, ''))}
+                    disabled={locked}
+                  />
+                </Field>
+                <Field label="Relation">
+                  <Input
+                    value={form.guarantorRelation}
+                    onChange={(e) => set('guarantorRelation', e.target.value)}
+                    placeholder="e.g. Brother, Friend"
+                    disabled={locked}
+                  />
+                </Field>
+                <Field label="Guarantor Address">
+                  <Input
+                    value={form.guarantorAddress}
+                    onChange={(e) => set('guarantorAddress', e.target.value)}
+                    disabled={locked}
+                  />
+                </Field>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 dark:border-slate-700">
               <Field label="Grace Days Override" hint="Blank uses the loan-type default">
                 <Input
                   type="number"
@@ -361,10 +451,10 @@ export function LoanFormPage() {
                   <SummaryStat label="Total Interest" value={formatCurrency(preview.totalInterest)} />
                   <SummaryStat label="Total Payable" value={formatCurrency(preview.totalPayable)} />
                 </div>
-                <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-100">
+                <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-100 dark:border-slate-700">
                   <table className="min-w-full text-xs">
-                    <thead className="sticky top-0 bg-slate-50">
-                      <tr className="text-slate-500">
+                    <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900/80">
+                      <tr className="text-slate-500 dark:text-slate-400">
                         <th className="px-2 py-2 text-left font-semibold">#</th>
                         <th className="px-2 py-2 text-left font-semibold">Due Date</th>
                         <th className="px-2 py-2 text-right font-semibold">Principal</th>
@@ -373,7 +463,7 @@ export function LoanFormPage() {
                         <th className="px-2 py-2 text-right font-semibold">Balance</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                       {preview.rows.map((r) => (
                         <tr key={r.sequence}>
                           <td className="px-2 py-1.5 text-slate-500">{r.sequence}</td>
@@ -400,15 +490,24 @@ export function LoanFormPage() {
           </CardBody>
         </Card>
       </form>
+
+      <CustomerQuickCreate
+        open={quickCreateOpen}
+        onClose={() => setQuickCreateOpen(false)}
+        onCreated={(customer) => {
+          reloadCustomers();
+          set('customerId', customer.id);
+        }}
+      />
     </>
   );
 }
 
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-slate-50 px-3 py-2">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="font-semibold text-slate-800">{value}</p>
+    <div className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-900/50">
+      <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
+      <p className="font-semibold text-slate-800 dark:text-slate-100">{value}</p>
     </div>
   );
 }

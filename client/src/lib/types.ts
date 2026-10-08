@@ -6,6 +6,7 @@ import type {
   Installment,
   InstallmentStatus,
   Loan,
+  LoanDocument,
   LoanFrequency,
   Payment,
   PaymentMode,
@@ -14,12 +15,14 @@ import type {
 
 export type {
   AppConfig,
+  CompanyProfile,
   Customer,
   CustomerDocument,
   Installment,
   InstallmentStatus,
   InterestMethod,
   Loan,
+  LoanDocument,
   LoanFrequency,
   LoanStatus,
   LoanTypeConfig,
@@ -29,6 +32,7 @@ export type {
   RiskResult,
   ScheduleRow,
   ScheduleSummary,
+  SettlementQuote,
 } from '@loan/shared';
 
 export type Role = 'ADMIN' | 'AGENT';
@@ -78,6 +82,7 @@ export interface LoanDetail extends Loan {
   customer: Customer;
   schedule: EnrichedInstallment[];
   payments: PaymentWithInstallment[];
+  documents: LoanDocument[];
   rollup: LoanRollup;
   effectiveGraceDays: number;
 }
@@ -89,6 +94,9 @@ export interface CustomerListItem {
   mobile: string;
   email?: string | null;
   address?: string | null;
+  photoUrl?: string | null;
+  aadhaar?: string | null;
+  location?: string | null;
   documentCount: number;
   loanCount: number;
   activeLoans: number;
@@ -185,7 +193,7 @@ export interface DashboardResponse {
   };
   collections: { today: number; week: number; month: number };
   portfolio: Record<LoanFrequency, { count: number; outstanding: number }>;
-  trend: { month: string; disbursed: number; collected: number }[];
+  trend: { month: string; disbursed: number; collected: number; revenue: number }[];
   actionRequiredCount: number;
   topRisk: { id: string; name: string; customerNumber: string; risk: RiskResult }[];
 }
@@ -206,6 +214,11 @@ export interface LoanInput {
   installments: number;
   disbursementDate: string;
   repaymentStartDate: string;
+  disbursementMode?: PaymentMode;
+  guarantorName?: string | null;
+  guarantorMobile?: string | null;
+  guarantorRelation?: string | null;
+  guarantorAddress?: string | null;
   graceDaysOverride?: number | null;
   defaultThresholdDaysOverride?: number | null;
 }
@@ -225,4 +238,18 @@ export interface CustomerInput {
   customerNumber?: string;
   email?: string | null;
   address?: string | null;
+  aadhaar?: string | null;
+  location?: string | null;
+}
+
+export interface CompanyInput {
+  name: string;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+}
+
+export interface SettlementResult {
+  payment: Payment;
+  quote: import('@loan/shared').SettlementQuote;
 }

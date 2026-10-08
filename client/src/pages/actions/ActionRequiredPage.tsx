@@ -114,7 +114,7 @@ export function ActionRequiredPage() {
                     <TR key={a.installmentId}>
                       <TD>
                         <button className="text-left" onClick={() => navigate(`/loans/${a.loanId}`)}>
-                          <div className="font-medium text-slate-800 hover:text-indigo-600">
+                          <div className="font-medium text-slate-800 hover:text-indigo-600 dark:text-slate-100">
                             {a.customerName}
                           </div>
                           <div className="text-xs text-slate-400">{a.customerNumber}</div>
@@ -172,7 +172,7 @@ export function ActionRequiredPage() {
                     <TR key={a.loanId}>
                       <TD>
                         <button className="text-left" onClick={() => navigate(`/loans/${a.loanId}`)}>
-                          <div className="font-medium text-slate-800 hover:text-indigo-600">
+                          <div className="font-medium text-slate-800 hover:text-indigo-600 dark:text-slate-100">
                             {a.customerName}
                           </div>
                           <div className="text-xs text-slate-400">{a.customerNumber}</div>

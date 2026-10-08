@@ -116,9 +116,9 @@ export function PaymentModal({
       }
     >
       <div className="space-y-4">
-        {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
+        {subtitle && <p className="text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
         {prefill?.sequence !== undefined && (
-          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-900/50 dark:text-slate-400">
             Applying to installment #{prefill.sequence}
             {prefill.amount !== undefined && ` · due ${formatCurrency(prefill.amount)}`}. Extra
             amount flows to the next open installments automatically.

@@ -126,9 +126,9 @@ export function PaymentFormPage() {
             </div>
 
             {selectedLoan && (
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/50">
                 <span className="text-slate-500">Outstanding</span>
-                <span className="font-semibold text-slate-800">
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
                   {formatCurrency(selectedLoan.rollup.outstanding)}
                   {selectedLoan.rollup.nextDueDate && (
                     <span className="ml-2 font-normal text-slate-400">
