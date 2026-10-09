@@ -49,6 +49,9 @@ export interface AuthUser {
 export interface LoanRollup {
   totalPayable: number;
   totalPaid: number;
+  interestCollected: number;
+  principalCollected: number;
+  outstandingPrincipal: number;
   outstanding: number;
   totalPrincipal: number;
   totalInterest: number;

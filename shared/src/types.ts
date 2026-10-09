@@ -139,6 +139,9 @@ export interface Installment {
   capitalizedAmount: number;
   /** Interest written off on early settlement (included in paidAmount, never received). */
   waivedAmount: number;
+  /** paidAmount split, interest first: interestPaid + principalPaid + waivedAmount = paidAmount. */
+  interestPaid: number;
+  principalPaid: number;
 }
 
 export interface Payment {
@@ -152,6 +155,9 @@ export interface Payment {
   note?: string | null;
   kind: PaymentKind;
   settlementInterest?: number | null;
+  /** How the amount was applied; interest is collected before principal. */
+  interestAmount: number;
+  principalAmount: number;
   createdAt: string;
 }
 

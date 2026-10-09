@@ -168,6 +168,8 @@ export const en = {
   'loanDetail.principal': 'Principal',
   'loanDetail.outstanding': 'Outstanding',
   'loanDetail.collected': 'Collected',
+  'loanDetail.collectedSplit': '{interest} interest · {principal} principal',
+  'loanDetail.principalOutstanding': 'Principal {amount}',
   'loanDetail.overdue': 'Overdue',
   'loanDetail.totalPayable': 'Total Payable',
   'loanDetail.totalInterest': 'Total Interest',

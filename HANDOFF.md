@@ -219,6 +219,84 @@ Two calculation bugs were found and fixed while writing these tests:
 | | `server/test/{payments,accounting,rules,collections,settlement,…}.test.ts` | Allocation, replay, settlement accounting, server rules, errors, uploads |
 | Client | `client/src/pages/loans/LoanFormPage.test.tsx` and others | Live schedule preview with the real engine, submit payload, guarantor toggle, locked terms; plus page gates from earlier passes |
 
+## Interest before principal (2026-10-10)
+
+Adopted from Frappe Lending (see below). Within each installment, money now
+fills **interest first, then principal**; installments are still paid
+oldest-first.
+
+- Data: `Installment.interestPaid` / `principalPaid` (with `waivedAmount`,
+  they add up to `paidAmount`), `Payment.interestAmount` / `principalAmount`
+  (a settlement's interest includes its interest-to-date). Migration
+  `20261010000000_interest_principal_split`.
+- Logic: `applyToInstallment` / `allocatePayment` / `applySettlement` in
+  `server/src/lib/loanService.ts`. Replays recompute every split; a replay of
+  a settled loan re-applies its settlement.
+- Reporting: interest earned and monthly revenue = interest received, by
+  payment date (previously only fully paid installments counted, so partial
+  payments showed no income). Loan roll-up adds `interestCollected`,
+  `principalCollected`, `outstandingPrincipal` (shown on the loan page).
+  Settlement quotes use `principalPaid` directly.
+- **Deploying:** after `prisma migrate deploy`, run
+  `npm run backfill:split --workspace server` once. The migration fills the installment
+  splits; the script replays history for exact payment splits (until then old
+  payments count as principal-only). It reports any loan it can't rebuild.
+  Already run on this machine's dev database (7/7 loans).
+- Tests: `server/test/interestSplit.test.ts`; split invariants are checked at
+  every step of `server/test/lifecycle.test.ts`.
+
+## Future consideration (from the Frappe Lending review)
+
+Reviewed `frappe/lending` (develop, 2026-10-10). Not implemented — kept here
+for prioritisation. Effort: S small, M medium.
+
+1. **Days-past-due as one figure (S).** `DPD = as-of − oldest unpaid due + 1`
+   (0 if nothing due), snapshot daily, mapped to configurable buckets (e.g.
+   1–30 / 31–60 / 61–90). Would drive Action Required, the default threshold
+   and risk from one number. (`loan/loan.py: update_days_past_due_in_loans`)
+2. **Closure tolerances per loan type (S).** Auto-waive a shortfall up to ₹X
+   and accept an overpayment up to ₹Y when closing; keep excess as
+   refundable credit instead of crediting the last installment.
+   (`loan_product.write_off_amount`, `excess_amount_acceptance_limit`)
+3. **Promise-to-pay + collection activity log (S–M).** Promise date/amount,
+   auto-marked Broken when the date passes unpaid; log calls/visits with an
+   outcome. Fits field collection. (`promise_to_pay`, `collection_activity`)
+4. **Part-prepayment: reduce tenure or reduce EMI (M).** Money left after
+   clearing dues rebuilds the remaining schedule — same EMI with fewer rows,
+   or same count with a lower EMI. Today extra money just pays off the last
+   installments. (`advance_payment_handling`, `loan_restructure`)
+5. **Optional penal interest per loan type, off by default (M).** Daily
+   `overdue amount × rate / 36500` once grace has passed, counted from the
+   due date, reversed if a backdated payment covers the due. Product
+   decision: changes what borrowers owe.
+   (`loan_interest_accrual.py: calculate_penal_interest_for_loans`)
+6. **Write-off with later recovery, and loan freeze (M).** Today DEFAULTED is
+   a dead end. Frappe writes off principal and still accepts recovery
+   payments (waived penalty/interest first, then principal); a freeze date
+   stops interest and DPD (legal/deceased cases). (`loan_write_off`)
+7. **Broken-period interest and EMI rounding options (M).** Interest for odd
+   days when the first due date isn't one period after disbursement
+   (upfront, first/last EMI or amortized); EMI rounding Nearest/Up/None.
+8. **Configurable payment order per status (M).** Frappe orders dues by
+   component (EMI / penalty / charges) with separate orders for standard,
+   NPA, written-off and settlement. Only needed once penalties/charges exist.
+
+Smaller notes from the review:
+
+- **Backdated new payments:** edits/deletes replay history in date order, but
+  a newly recorded payment dated before existing ones is applied on top, so
+  installment paid dates (used by risk and the statement) can be off. Cheap
+  fix: replay when a payment is dated before the newest one.
+- **Day-count convention:** decide explicitly. Our weekly EMI uses rate/52
+  while settlement interest is per day at /365; Frappe makes this a setting
+  (Actual/365, Actual/360, 30/360, …).
+- **Tests to add (from their suite):** two payments on the same day,
+  cancelling the payment that closed a loan, an advance payment before the
+  first due date, overpayment just over a tolerance, concurrent payments on
+  one loan (they lock rows to avoid double allocation).
+- **Out of scope for now:** GL accounting/accrual jobs, NPA suspense
+  accounting, IRAC provisioning, co-lending, collateral/margin calls.
+
 ## Next session
 
 1. Finish Tamil across the remaining pages (list above).

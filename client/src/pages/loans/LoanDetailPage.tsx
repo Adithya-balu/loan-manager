@@ -208,8 +208,20 @@ export function LoanDetailPage() {
           value={formatCurrency(data.principal)}
           hint={`${data.annualRatePct}% · ${t(`method.${data.interestMethod}`)}`}
         />
-        <StatCard label={t('loanDetail.outstanding')} value={formatCurrency(rollup.outstanding)} />
-        <StatCard label={t('loanDetail.collected')} value={formatCurrency(rollup.totalPaid)} tone="positive" />
+        <StatCard
+          label={t('loanDetail.outstanding')}
+          value={formatCurrency(rollup.outstanding)}
+          hint={t('loanDetail.principalOutstanding', { amount: formatCurrency(rollup.outstandingPrincipal) })}
+        />
+        <StatCard
+          label={t('loanDetail.collected')}
+          value={formatCurrency(rollup.totalPaid)}
+          hint={t('loanDetail.collectedSplit', {
+            interest: formatCurrency(rollup.interestCollected),
+            principal: formatCurrency(rollup.principalCollected),
+          })}
+          tone="positive"
+        />
         <StatCard
           label={t('loanDetail.overdue')}
           value={formatCurrency(rollup.overdueAmount)}

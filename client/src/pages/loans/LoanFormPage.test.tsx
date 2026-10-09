@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateSchedule } from '@loan/shared';
 import { api } from '../../lib/api';
 import type { CustomerListItem } from '../../lib/types';
-import { loanDetail } from '../../test/fixtures';
+import { loanDetail, payment } from '../../test/fixtures';
 import { renderPage } from '../../test/render';
 import { LoanFormPage } from './LoanFormPage';
 
@@ -98,7 +98,7 @@ describe('LoanFormPage — editing', () => {
 
   it('locks the terms once the loan has payments', async () => {
     vi.mocked(api.getLoan).mockResolvedValue(
-      loanDetail({ payments: [{ id: 'P1', loanId: 'L1', customerId: 'C1', amount: 10, date: '', mode: 'CASH', kind: 'REGULAR', createdAt: '' }] }),
+      loanDetail({ payments: [payment({ amount: 10 })] }),
     );
     renderPage(<LoanFormPage />, { route: '/loans/:id/edit', path: '/loans/L1/edit' });
     expect(await screen.findByText(/terms are locked/)).toBeInTheDocument();

@@ -63,7 +63,6 @@ router.get(
 
       const grace = effectiveGraceDays(loan, settings);
       for (const inst of loan.schedule) {
-        if (inst.status === 'PAID') interestEarned += inst.interestComponent - inst.waivedAmount;
         const e = enrichInstallment(inst, grace, ref);
         const due = dateOnly(inst.dueDate);
         if (due.getTime() <= ref.getTime() && inst.status !== 'DEFAULTED') {
@@ -84,7 +83,8 @@ router.get(
       if (toISODate(d) === todayISO) collectedToday += p.amount;
       if (d.getTime() >= weekAgo.getTime()) collectedWeek += p.amount;
       if (d.getTime() >= monthStart.getTime()) collectedMonth += p.amount;
-      if (p.settlementInterest) interestEarned += p.settlementInterest;
+      // Interest income = the interest part of cash received (interest is collected first).
+      interestEarned += p.interestAmount;
     }
 
     // 6-month disbursement vs collection trend.
@@ -104,20 +104,12 @@ router.get(
     for (const loan of loans) {
       const k = monthKey(dateOnly(loan.disbursementDate));
       if (k in disbursedByMonth) disbursedByMonth[k] += loan.principal;
-      // Revenue = interest earned, booked in the month the installment was paid.
-      // Interest waived on early settlement was never earned.
-      for (const inst of loan.schedule) {
-        if (inst.status === 'PAID' && inst.paidDate) {
-          const rk = monthKey(dateOnly(inst.paidDate));
-          if (rk in revenueByMonth) revenueByMonth[rk] += inst.interestComponent - inst.waivedAmount;
-        }
-      }
     }
     for (const p of payments) {
       const k = monthKey(dateOnly(p.date));
       if (k in collectedByMonth) collectedByMonth[k] += p.amount;
-      // Settlement interest-to-date isn't part of any installment; book it on the settlement date.
-      if (p.settlementInterest && k in revenueByMonth) revenueByMonth[k] += p.settlementInterest;
+      // Revenue = interest received, booked in the month it was received.
+      if (k in revenueByMonth) revenueByMonth[k] += p.interestAmount;
     }
     const trend = months.map((m) => ({
       month: m,

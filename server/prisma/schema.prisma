@@ -148,6 +148,10 @@ model Installment {
   /// Unpaid interest written off when the loan was settled early. Counted in
   /// paidAmount (so the installment reads as PAID) but never received as cash.
   waivedAmount       Float             @default(0)
+  /// How paidAmount splits: interest is always filled before principal.
+  /// interestPaid + principalPaid + waivedAmount = paidAmount.
+  interestPaid       Float             @default(0)
+  principalPaid      Float             @default(0)
   payments           Payment[]
 
   @@unique([loanId, sequence])
@@ -170,6 +174,10 @@ model Payment {
   kind               PaymentKind  @default(REGULAR)
   /// SETTLEMENT only: the interest-to-date portion of the settlement amount.
   settlementInterest Float?
+  /// How the amount was applied (interest first, within each installment).
+  /// For a settlement, interestAmount includes settlementInterest.
+  interestAmount     Float        @default(0)
+  principalAmount    Float        @default(0)
   createdAt          DateTime     @default(now())
 
   @@index([date])

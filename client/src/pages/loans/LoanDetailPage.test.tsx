@@ -90,3 +90,12 @@ describe('LoanDetailPage — non-active loans (#7)', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
   });
 });
+
+describe('LoanDetailPage — interest/principal split (#2)', () => {
+  it('shows how collections split and how much principal is still owed', async () => {
+    const base = loanDetail();
+    await show(loanDetail({ rollup: { ...base.rollup, totalPaid: 1250, interestCollected: 200, principalCollected: 1050, outstandingPrincipal: 1950 } }));
+    expect(screen.getByText('Collected').parentElement).toHaveTextContent('₹200.00 interest · ₹1,050.00 principal');
+    expect(screen.getByText('Outstanding').parentElement).toHaveTextContent('Principal ₹1,950.00');
+  });
+});

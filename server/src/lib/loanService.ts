@@ -85,6 +85,12 @@ export function enrichInstallment(
 export interface LoanRollup {
   totalPayable: number;
   totalPaid: number;
+  /** Cash collected that went to interest (incl. settlement interest-to-date). */
+  interestCollected: number;
+  /** Cash collected that went to principal. */
+  principalCollected: number;
+  /** Scheduled principal not yet repaid (excludes capitalized installments, whose shortfall moved into later ones). */
+  outstandingPrincipal: number;
   outstanding: number;
   totalPrincipal: number;
   totalInterest: number;
@@ -99,7 +105,10 @@ export interface LoanRollup {
 
 /** Aggregate money + status figures for a loan given its schedule and payments. */
 export function rollupLoan(
-  loan: Loan & { schedule: Installment[]; payments: { date: Date; amount: number }[] },
+  loan: Loan & {
+    schedule: Installment[];
+    payments: { date: Date; amount: number; interestAmount: number; principalAmount: number }[];
+  },
   settings: Record<LoanFrequency, { graceDays: number; defaultThresholdDays: number }>,
   ref: Date = today(),
 ): LoanRollup {
@@ -110,6 +119,13 @@ export function rollupLoan(
   // Cash actually received. Installment paid amounts can include interest
   // waived at settlement, so they aren't a reliable measure of collections.
   const totalPaid = round2(loan.payments.reduce((a, p) => a + p.amount, 0));
+  const interestCollected = round2(loan.payments.reduce((a, p) => a + p.interestAmount, 0));
+  const principalCollected = round2(loan.payments.reduce((a, p) => a + p.principalAmount, 0));
+  const outstandingPrincipal = round2(
+    loan.schedule
+      .filter((i) => i.status !== 'DEFAULTED')
+      .reduce((a, i) => a + Math.max(0, i.principalComponent - i.principalPaid), 0),
+  );
   const totalPrincipal = round2(loan.schedule.reduce((a, i) => a + i.principalComponent, 0));
   const totalInterest = round2(loan.schedule.reduce((a, i) => a + i.interestComponent, 0));
   const outstanding = round2(
@@ -142,6 +158,9 @@ export function rollupLoan(
   return {
     totalPayable,
     totalPaid,
+    interestCollected,
+    principalCollected,
+    outstandingPrincipal,
     outstanding,
     totalPrincipal,
     totalInterest,
@@ -243,24 +262,54 @@ function isOpenInstallment(i: Installment) {
   return i.status !== 'DEFAULTED' && capacityOf(i) > 0.005;
 }
 
+interface Split {
+  interest: number;
+  principal: number;
+}
+
+/**
+ * Put `amount` on one installment, interest first: it fills whatever of the
+ * installment's interest is still unpaid, and the rest goes to principal
+ * (including any overpayment credited to the last installment).
+ */
+function applyToInstallment(inst: Installment, amount: number): Split {
+  const interestRoom = Math.max(0, round2(inst.interestComponent - inst.interestPaid - inst.waivedAmount));
+  const interest = round2(Math.min(amount, interestRoom));
+  const principal = round2(amount - interest);
+  inst.interestPaid = round2(inst.interestPaid + interest);
+  inst.principalPaid = round2(inst.principalPaid + principal);
+  inst.paidAmount = round2(inst.paidAmount + amount);
+  return { interest, principal };
+}
+
 /**
  * Apply a single payment's amount across a loan's installments, always in
- * sequence order starting from the oldest one with capacity left. Partial
- * payments and overpayments are supported; leftover money after the last
- * installment is credited onto the final regular installment (reducing
- * outstanding). Works on an in-memory schedule (mutated in place) so a full
- * replay costs one read and one write per installment rather than several
- * queries per payment. Returns the installment the payment starts on.
+ * sequence order starting from the oldest one with capacity left, and within
+ * each installment interest before principal. Partial payments and
+ * overpayments are supported; leftover money after the last installment is
+ * credited onto the final regular installment (reducing outstanding). Works on
+ * an in-memory schedule (mutated in place) so a full replay costs one read and
+ * one write per installment rather than several queries per payment. Returns
+ * the installment the payment starts on and how it split.
  */
-function allocatePayment(schedule: Installment[], amount: number, date: Date): string | null {
+function allocatePayment(
+  schedule: Installment[],
+  amount: number,
+  date: Date,
+): { primaryInstallmentId: string | null } & Split {
   const open = schedule.filter((i) => capacityOf(i) > 0.005);
   const regularOpen = open.filter((i) => i.status !== 'DEFAULTED');
   let remaining = round2(amount);
+  const split: Split = { interest: 0, principal: 0 };
+  const add = (part: Split) => {
+    split.interest = round2(split.interest + part.interest);
+    split.principal = round2(split.principal + part.principal);
+  };
 
   for (let i = 0; i < open.length && remaining > 0.005; i++) {
     const inst = open[i];
     const apply = Math.min(remaining, capacityOf(inst));
-    inst.paidAmount = round2(inst.paidAmount + apply);
+    add(applyToInstallment(inst, apply));
     remaining = round2(remaining - apply);
     if (inst.status === 'DEFAULTED') continue;
     const fullyPaid = inst.paidAmount >= round2(inst.amountDue) - 0.005;
@@ -271,12 +320,43 @@ function allocatePayment(schedule: Installment[], amount: number, date: Date): s
   // Leftover overpayment → credit the final open regular installment (reduces outstanding).
   if (remaining > 0.005 && regularOpen.length > 0) {
     const last = regularOpen[regularOpen.length - 1];
-    last.paidAmount = round2(last.paidAmount + remaining);
+    add(applyToInstallment(last, remaining));
     last.status = 'PAID';
     last.paidDate ??= date;
   }
 
-  return regularOpen[0]?.id ?? null;
+  return { primaryInstallmentId: regularOpen[0]?.id ?? null, ...split };
+}
+
+/**
+ * Close out every open installment for an early settlement dated `date`.
+ * Matured installments are paid in full (interest first, as usual); future
+ * ones only have their unpaid principal collected, and their unpaid scheduled
+ * interest is recorded as waived rather than earned. Returns how the
+ * schedule part of the settlement split (interest-to-date is extra).
+ */
+function applySettlement(schedule: Installment[], date: Date): Split {
+  const refDay = dateOnly(date).getTime();
+  const split: Split = { interest: 0, principal: 0 };
+  for (const inst of schedule) {
+    if (inst.status === 'DEFAULTED') continue;
+    const remaining = round2(inst.amountDue - inst.paidAmount);
+    if (remaining <= 0.005) continue;
+    if (dateOnly(inst.dueDate).getTime() <= refDay) {
+      const part = applyToInstallment(inst, remaining);
+      split.interest = round2(split.interest + part.interest);
+      split.principal = round2(split.principal + part.principal);
+    } else {
+      const unpaidPrincipal = Math.max(0, round2(inst.principalComponent - inst.principalPaid));
+      inst.principalPaid = round2(inst.principalPaid + unpaidPrincipal);
+      inst.waivedAmount = Math.max(0, round2(inst.interestComponent - inst.interestPaid));
+      inst.paidAmount = inst.amountDue;
+      split.principal = round2(split.principal + unpaidPrincipal);
+    }
+    inst.status = 'PAID';
+    inst.paidDate ??= date;
+  }
+  return split;
 }
 
 /** Persist installments whose allocation fields differ from `before`. */
@@ -289,6 +369,8 @@ async function saveAllocation(tx: TxClient, before: Installment[], after: Instal
       old.paidAmount === inst.paidAmount &&
       old.status === inst.status &&
       old.waivedAmount === inst.waivedAmount &&
+      old.interestPaid === inst.interestPaid &&
+      old.principalPaid === inst.principalPaid &&
       old.paidDate?.getTime() === inst.paidDate?.getTime()
     ) {
       continue;
@@ -300,9 +382,20 @@ async function saveAllocation(tx: TxClient, before: Installment[], after: Instal
         status: inst.status,
         paidDate: inst.paidDate,
         waivedAmount: inst.waivedAmount,
+        interestPaid: inst.interestPaid,
+        principalPaid: inst.principalPaid,
       },
     });
   }
+}
+
+/** Persist a payment's interest/principal split if it changed. */
+async function saveSplit(tx: TxClient, payment: { id: string; interestAmount: number; principalAmount: number }, split: Split) {
+  if (payment.interestAmount === split.interest && payment.principalAmount === split.principal) return;
+  await tx.payment.update({
+    where: { id: payment.id },
+    data: { interestAmount: split.interest, principalAmount: split.principal },
+  });
 }
 
 const allSettled = (schedule: Installment[]) =>
@@ -328,7 +421,7 @@ async function replayLoanPayments(tx: TxClient, loanId: string) {
     include: { schedule: { orderBy: { sequence: 'asc' } } },
   });
   const payments = await tx.payment.findMany({
-    where: { loanId, kind: 'REGULAR' },
+    where: { loanId },
     orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
   });
 
@@ -336,9 +429,14 @@ async function replayLoanPayments(tx: TxClient, loanId: string) {
     ...inst,
     paidAmount: 0,
     waivedAmount: 0,
+    interestPaid: 0,
+    principalPaid: 0,
     ...(inst.status === 'DEFAULTED' ? {} : { status: 'SCHEDULED' as const, paidDate: null }),
   }));
-  for (const p of payments) allocatePayment(schedule, p.amount, p.date);
+  const splits = new Map<string, Split>();
+  for (const p of payments) {
+    if (p.kind === 'REGULAR') splits.set(p.id, allocatePayment(schedule, p.amount, p.date));
+  }
 
   const shortfall = schedule.find((i) => i.status === 'DEFAULTED' && capacityOf(i) > 0.005);
   if (shortfall) {
@@ -347,7 +445,16 @@ async function replayLoanPayments(tx: TxClient, loanId: string) {
     );
   }
 
+  // A settlement (only present when rebuilding a settled loan) closes out what's left.
+  for (const p of payments) {
+    if (p.kind !== 'SETTLEMENT') continue;
+    const part = applySettlement(schedule, p.date);
+    const interest = round2(part.interest + (p.settlementInterest ?? 0));
+    splits.set(p.id, { interest, principal: round2(p.amount - interest) });
+  }
+
   await saveAllocation(tx, loan.schedule, schedule);
+  for (const p of payments) await saveSplit(tx, p, splits.get(p.id)!);
 
   if (loan.status === 'DEFAULTED') return;
   const settled = allSettled(schedule);
@@ -356,6 +463,15 @@ async function replayLoanPayments(tx: TxClient, loanId: string) {
   } else if (!settled && loan.status === 'CLOSED') {
     await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE' } });
   }
+}
+
+/**
+ * Recompute a loan's allocation from its payment history (installment paid
+ * amounts and every payment's interest/principal split). Used to backfill
+ * loans recorded before the split existed; safe to run repeatedly.
+ */
+export async function rebuildLoanAllocation(loanId: string) {
+  return prisma.$transaction((tx) => replayLoanPayments(tx, loanId), { timeout: 30000 });
 }
 
 /** Settled loans are frozen: only deleting the settlement itself may change their payments. */
@@ -405,7 +521,7 @@ export async function recordPayment(input: RecordPaymentInput) {
     }
 
     const schedule = before.map((i) => ({ ...i }));
-    const primaryInstallmentId = allocatePayment(schedule, input.amount, payDate);
+    const { primaryInstallmentId, interest, principal } = allocatePayment(schedule, input.amount, payDate);
     await saveAllocation(tx, before, schedule);
 
     const payment = await tx.payment.create({
@@ -417,6 +533,8 @@ export async function recordPayment(input: RecordPaymentInput) {
         date: payDate,
         mode: input.mode ?? 'CASH',
         note: input.note ?? null,
+        interestAmount: interest,
+        principalAmount: principal,
       },
     });
 
@@ -620,8 +738,7 @@ export function computeSettlement(
       overdueDue = round2(overdueDue + inst.remaining);
     } else {
       // Future installment: only the unpaid principal slice is owed on early settlement.
-      const paidTowardPrincipal = Math.max(0, inst.paidAmount - inst.interestComponent);
-      const unpaidPrincipal = Math.max(0, round2(inst.principalComponent - paidTowardPrincipal));
+      const unpaidPrincipal = Math.max(0, round2(inst.principalComponent - inst.principalPaid));
       remainingPrincipal = round2(remainingPrincipal + unpaidPrincipal);
     }
   }
@@ -664,6 +781,13 @@ export async function settleLoan(
     const quote = computeSettlement(loan, settings, payDate);
     if (quote.settlementAmount <= 0.005) throw new Error('Nothing outstanding to settle');
 
+    // Close out every open installment (see applySettlement): matured ones in
+    // full, future ones for their unpaid principal with scheduled interest waived.
+    const schedule = loan.schedule.map((i) => ({ ...i }));
+    const part = applySettlement(schedule, payDate);
+    await saveAllocation(tx, loan.schedule, schedule);
+    const interestAmount = round2(part.interest + quote.interestToDate);
+
     const payment = await tx.payment.create({
       data: {
         loanId: loan.id,
@@ -675,26 +799,10 @@ export async function settleLoan(
         note: `Settlement / foreclosure (principal ${quote.remainingPrincipal}, interest ${quote.interestToDate}, overdue ${quote.overdueDue})`,
         kind: 'SETTLEMENT',
         settlementInterest: quote.interestToDate,
+        interestAmount,
+        principalAmount: round2(quote.settlementAmount - interestAmount),
       },
     });
-
-    // Close out every open installment as paid. Matured ones were owed in full;
-    // for future ones only the unpaid principal was collected, so their unpaid
-    // scheduled interest is recorded as waived rather than earned.
-    const refDay = dateOnly(payDate).getTime();
-    for (const inst of loan.schedule) {
-      if (inst.status === 'DEFAULTED') continue;
-      const remaining = round2(inst.amountDue - inst.paidAmount);
-      if (remaining <= 0.005) continue;
-      const matured = dateOnly(inst.dueDate).getTime() <= refDay;
-      const waivedAmount = matured
-        ? 0
-        : Math.max(0, round2(inst.interestComponent - Math.min(inst.paidAmount, inst.interestComponent)));
-      await tx.installment.update({
-        where: { id: inst.id },
-        data: { paidAmount: inst.amountDue, waivedAmount, status: 'PAID', paidDate: inst.paidDate ?? payDate },
-      });
-    }
 
     await tx.loan.update({ where: { id: loan.id }, data: { status: 'CLOSED' } });
     return { payment, quote };

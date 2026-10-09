@@ -17,13 +17,14 @@ beforeEach(async () => {
 interface Inst {
   id: string; sequence: number; dueDate: string; amountDue: number; principalComponent: number;
   interestComponent: number; paidAmount: number; waivedAmount: number; capitalizedAmount: number;
+  interestPaid: number; principalPaid: number;
   status: string; derivedStatus: string; remaining: number; actionRequired: boolean; paidDate: string | null;
 }
 interface Detail {
   id: string; status: string; principal: number;
   schedule: Inst[];
-  payments: { id: string; amount: number; kind: string; settlementInterest: number | null; date: string }[];
-  rollup: { totalPaid: number; outstanding: number; overdueAmount: number; totalPayable: number; totalInterest: number; loanDefaultEligible: boolean; paidInstallments: number };
+  payments: { id: string; amount: number; kind: string; settlementInterest: number | null; date: string; interestAmount: number; principalAmount: number }[];
+  rollup: { totalPaid: number; interestCollected: number; principalCollected: number; outstanding: number; overdueAmount: number; totalPayable: number; totalInterest: number; loanDefaultEligible: boolean; paidInstallments: number };
 }
 
 const getDetail = async (id: string): Promise<Detail> => (await admin.get(`/api/loans/${id}`)).body;
@@ -38,6 +39,17 @@ async function reconciled(loanId: string): Promise<Detail> {
 
   expect(d.rollup.totalPaid, 'collected = cash received').toBeCloseTo(cash, 2);
   expect(appliedToSchedule, 'installments hold exactly the cash (net of settlement interest)').toBeCloseTo(cash - settlementInterest, 2);
+
+  // Interest before principal: splits add up, interest never exceeds what's scheduled,
+  // and the interest received across payments is what installments hold (+ settlement interest).
+  for (const i of d.schedule) {
+    expect(round2(i.interestPaid + i.principalPaid + i.waivedAmount), `#${i.sequence} split adds up`).toBe(i.paidAmount);
+    expect(i.interestPaid + i.waivedAmount).toBeLessThanOrEqual(i.interestComponent + 0.005);
+    if (i.principalPaid > 0.005) expect(round2(i.interestPaid + i.waivedAmount), `#${i.sequence} interest first`).toBe(i.interestComponent);
+  }
+  for (const p of d.payments) expect(round2(p.interestAmount + p.principalAmount), 'payment split adds up').toBe(p.amount);
+  expect(sum(d.payments, (p) => p.interestAmount)).toBeCloseTo(sum(d.schedule, (i) => i.interestPaid) + settlementInterest, 2);
+  expect(d.rollup.interestCollected).toBeCloseTo(sum(d.payments, (p) => p.interestAmount), 2);
 
   const unpaid = sum(d.schedule.filter((i) => i.status !== 'DEFAULTED'), (i) => Math.max(0, i.amountDue - i.paidAmount));
   expect(d.rollup.outstanding, 'outstanding = unpaid').toBeCloseTo(unpaid, 2);

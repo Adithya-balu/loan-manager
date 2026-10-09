@@ -171,6 +171,8 @@ export const ta: Record<MessageKey, string> = {
   'loanDetail.principal': 'அசல்',
   'loanDetail.outstanding': 'நிலுவை',
   'loanDetail.collected': 'வசூலானது',
+  'loanDetail.collectedSplit': '{interest} வட்டி · {principal} அசல்',
+  'loanDetail.principalOutstanding': 'அசல் {amount}',
   'loanDetail.overdue': 'தாமத நிலுவை',
   'loanDetail.totalPayable': 'மொத்தம் செலுத்த வேண்டியது',
   'loanDetail.totalInterest': 'மொத்த வட்டி',

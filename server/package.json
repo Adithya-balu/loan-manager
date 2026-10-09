@@ -13,7 +13,8 @@
     "seed": "tsx prisma/seed.ts",
     "reset": "prisma migrate reset --force",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "backfill:split": "tsx --env-file=.env scripts/backfill-interest-split.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

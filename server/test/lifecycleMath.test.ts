@@ -28,15 +28,24 @@ function loan(over: Partial<Loan> = {}): Loan {
   };
 }
 
+/** An installment; unless given, its interest/principal split follows paidAmount, interest first. */
 function inst(sequence: number, due: string, over: Partial<Installment> = {}): Installment {
-  return {
+  const base: Installment = {
     id: `I${sequence}`, loanId: 'L1', sequence, dueDate: d(due), amountDue: 1000,
     principalComponent: 1000, interestComponent: 0, paidAmount: 0, status: 'SCHEDULED',
-    paidDate: null, capitalizedAmount: 0, waivedAmount: 0, ...over,
+    paidDate: null, capitalizedAmount: 0, waivedAmount: 0, interestPaid: 0, principalPaid: 0, ...over,
   };
+  if (over.interestPaid === undefined && over.principalPaid === undefined) {
+    const cash = base.paidAmount - base.waivedAmount;
+    base.interestPaid = Math.max(0, Math.min(base.interestComponent - base.waivedAmount, cash));
+    base.principalPaid = Math.max(0, cash - base.interestPaid);
+  }
+  return base;
 }
 
-const pay = (date: string, amount: number) => ({ date: d(date), amount });
+const pay = (date: string, amount: number, interestAmount = 0) => ({
+  date: d(date), amount, interestAmount, principalAmount: amount - interestAmount,
+});
 
 describe('installment status (deriveStatus)', () => {
   it.each([
@@ -106,6 +115,17 @@ describe('loan roll-up (rollupLoan)', () => {
       paidInstallments: 1, openInstallments: 2, nextDueDate: '2026-06-01',
       actionRequiredCount: 1, lastPaymentDate: '2026-06-10',
     });
+  });
+
+  it('splits collections into interest and principal, and tracks principal still owed', () => {
+    const s = [
+      inst(1, '2026-05-01', { amountDue: 1100, interestComponent: 100, paidAmount: 1100, status: 'PAID' }),
+      inst(2, '2026-06-01', { amountDue: 1100, interestComponent: 100, paidAmount: 150, status: 'PARTIAL' }),
+      inst(3, '2026-07-01', { amountDue: 1100, interestComponent: 100 }),
+    ];
+    const payments = [pay('2026-05-01', 1100, 100), pay('2026-06-05', 150, 100)];
+    const r = rollupLoan({ ...loan(), schedule: s, payments }, DEFAULT_SETTINGS, REF);
+    expect(r).toMatchObject({ totalPaid: 1250, interestCollected: 200, principalCollected: 1050, outstandingPrincipal: 1950 });
   });
 
   it('collected is cash received, even when installments include waived interest', () => {
