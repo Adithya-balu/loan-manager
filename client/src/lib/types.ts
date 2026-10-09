@@ -189,6 +189,8 @@ export interface DashboardResponse {
     outstanding: number;
     interestEarned: number;
     overdueAmount: number;
+    /** Outstanding on DEFAULTED loans — excluded from outstanding/overdue. */
+    defaultedBalance: number;
     activeLoans: number;
     closedLoans: number;
     defaultedLoans: number;

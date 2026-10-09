@@ -1,8 +1,13 @@
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useId,
+  type InputHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
 } from 'react';
 
 const baseControl =
@@ -23,13 +28,24 @@ export function Field({
   required?: boolean;
   children: ReactNode;
 }) {
+  // Link the label to its control so clicking it focuses the field and
+  // screen readers announce it. A control nested in a wrapper (e.g. a select
+  // beside a button) can pass `htmlFor` with its own id instead.
+  const autoId = useId();
+  let control = children;
+  let id = htmlFor;
+  if (!id && Children.count(children) === 1 && isValidElement(children) && isFormControl(children)) {
+    const props = children.props as { id?: string };
+    id = props.id ?? autoId;
+    control = cloneElement(children as ReactElement<{ id?: string }>, { id });
+  }
   return (
     <div className="flex flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-xs font-medium text-slate-600 dark:text-slate-300">
+      <label htmlFor={id} className="text-xs font-medium text-slate-600 dark:text-slate-300">
         {label}
         {required && <span className="ml-0.5 text-rose-500">*</span>}
       </label>
-      {children}
+      {control}
       {hint && !error && <p className="text-xs text-slate-400 dark:text-slate-500">{hint}</p>}
       {error && <p className="text-xs text-rose-500">{error}</p>}
     </div>
@@ -53,4 +69,15 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   const { className = '', ...rest } = props;
   return <textarea className={`${baseControl} ${className}`} {...rest} />;
+}
+
+function isFormControl(el: ReactElement): boolean {
+  return (
+    el.type === Input ||
+    el.type === Select ||
+    el.type === TextArea ||
+    el.type === 'input' ||
+    el.type === 'select' ||
+    el.type === 'textarea'
+  );
 }

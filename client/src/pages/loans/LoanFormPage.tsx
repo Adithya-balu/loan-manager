@@ -193,6 +193,11 @@ export function LoanFormPage() {
       toast.error(t('loanForm.invalidTermsToast'));
       return;
     }
+    const overrides = [form.graceDaysOverride, form.defaultThresholdDaysOverride].map((v) => v.trim());
+    if (overrides.some((v) => v !== '' && !Number.isInteger(Number(v)))) {
+      toast.error(t('loanForm.wholeDays'));
+      return;
+    }
     setSaving(true);
     try {
       const payload = {

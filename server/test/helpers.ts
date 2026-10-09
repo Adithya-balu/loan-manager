@@ -3,6 +3,7 @@ import { expect } from 'vitest';
 import app from '../src/app.js';
 import { prisma } from '../src/db.js';
 import { hashPassword } from '../src/lib/auth.js';
+import { today } from '../src/lib/dates.js';
 
 export { app, prisma };
 
@@ -37,10 +38,9 @@ export async function login(creds = ADMIN): Promise<Client> {
   return client;
 }
 
-/** yyyy-mm-dd for today (UTC, matching the server) plus `offset` days. */
+/** yyyy-mm-dd for the server's business "today" plus `offset` days. */
 export function iso(offset = 0): string {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
+  const d = today();
   d.setUTCDate(d.getUTCDate() + offset);
   return d.toISOString().slice(0, 10);
 }

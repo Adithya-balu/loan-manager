@@ -23,6 +23,24 @@ describe('dashboard', () => {
   });
 });
 
+describe('dashboard and defaulted loans (#9, decision B)', () => {
+  it('keeps defaulted balances out of Outstanding/Overdue and reports them separately', async () => {
+    const before = (await admin.get('/api/dashboard')).body.kpis;
+    const c = await createCustomer(admin);
+    const bad = await createLoan(admin, c.id, {
+      principal: 1000, annualRatePct: 0, frequency: 'DAILY', installments: 10,
+      disbursementDate: iso(-6), repaymentStartDate: iso(-5),
+    });
+    const owed = (await admin.get(`/api/loans/${bad.id}`)).body.rollup;
+    await admin.post(`/api/loans/${bad.id}/default`);
+
+    const k = (await admin.get('/api/dashboard')).body.kpis;
+    expect(k.outstanding).toBeCloseTo(before.outstanding, 2);
+    expect(k.overdueAmount).toBeCloseTo(before.overdueAmount, 2);
+    expect(k.defaultedBalance).toBeCloseTo((before.defaultedBalance ?? 0) + owed.outstanding, 2);
+  });
+});
+
 describe('settings', () => {
   it('reads, updates and validates loan-type settings', async () => {
     const orig = (await admin.get('/api/config')).body.loanTypes;

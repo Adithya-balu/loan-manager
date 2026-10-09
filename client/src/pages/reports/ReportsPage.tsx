@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { PageHeader } from '../../components/PageHeader';
 import { Card, CardBody, CardHeader, StatCard } from '../../components/ui/Card';
 import { Field, Input, Select } from '../../components/ui/Field';
@@ -7,7 +7,7 @@ import { EmptyState, ErrorState, LoadingState, Spinner } from '../../components/
 import { TBody, TD, TH, THead, TR, Table } from '../../components/ui/Table';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
-import { FREQUENCY_LABEL, formatCurrency, formatDate, todayISO } from '../../lib/format';
+import { FREQUENCY_LABEL, formatCurrency, formatDate, toLocalISODate, todayISO } from '../../lib/format';
 import type { LoanDetail } from '../../lib/types';
 
 type Tab = 'collection' | 'outstanding' | 'statement' | 'revenue';
@@ -54,7 +54,7 @@ function CollectionReport() {
   const [from, setFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
+    return toLocalISODate(d);
   });
   const [to, setTo] = useState(todayISO());
   const { data: payments, loading, error, reload } = useApi(() => api.listPayments(), []);
@@ -134,7 +134,8 @@ function OutstandingReport() {
   if (loading) return <LoadingState />;
   if (error || !loans) return <ErrorState message={error ?? 'No data'} onRetry={reload} />;
 
-  const active = loans.filter((l) => l.status !== 'CLOSED');
+  // Defaulted loans are written off; they're tracked as "Defaulted balance" on the dashboard.
+  const active = loans.filter((l) => l.status === 'ACTIVE');
   const totalOutstanding = active.reduce((a, l) => a + l.rollup.outstanding, 0);
   const totalOverdue = active.reduce((a, l) => a + l.rollup.overdueAmount, 0);
 
@@ -197,16 +198,28 @@ function StatementReport() {
   const [loanId, setLoanId] = useState('');
   const [detail, setDetail] = useState<LoanDetail | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Only the latest selection may update the view, even if an older request finishes last.
+  const latest = useRef('');
 
   function onSelect(id: string) {
     setLoanId(id);
     setDetail(null);
+    setLoadError(null);
+    latest.current = id;
     if (!id) return;
     setLoading(true);
     api
       .getLoan(id)
-      .then(setDetail)
-      .finally(() => setLoading(false));
+      .then((d) => {
+        if (latest.current === id) setDetail(d);
+      })
+      .catch((e: unknown) => {
+        if (latest.current === id) setLoadError(e instanceof Error ? e.message : 'Failed to load statement');
+      })
+      .finally(() => {
+        if (latest.current === id) setLoading(false);
+      });
   }
 
   return (
@@ -232,6 +245,8 @@ function StatementReport() {
           <Spinner />
         </div>
       )}
+
+      {loadError && <ErrorState message={loadError} onRetry={() => onSelect(loanId)} />}
 
       {detail && (
         <>

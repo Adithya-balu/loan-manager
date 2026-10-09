@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
-import { api } from '../lib/api';
+import { api, DATA_CHANGED_EVENT } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { LANGUAGES, useI18n, type Lang } from '../i18n/I18nContext';
@@ -28,13 +28,20 @@ const NAV: NavItem[] = [
 ];
 
 export function Layout() {
-  const { data: actions } = useApi(() => api.getActionRequired(), []);
+  const { pathname } = useLocation();
+  // Refresh the Action Required badge on navigation and after any change.
+  const { data: actions, reload: reloadActions } = useApi(() => api.getActionRequired(), [pathname]);
   const { data: company, reload: reloadCompany } = useApi(() => api.getCompany(), []);
   const actionCount = actions?.total ?? 0;
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { lang, setLang, t } = useI18n();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    window.addEventListener(DATA_CHANGED_EVENT, reloadActions);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, reloadActions);
+  }, [reloadActions]);
 
   // CompanyProfilePage dispatches this after a save or logo upload.
   useEffect(() => {

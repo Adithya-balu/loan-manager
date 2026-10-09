@@ -33,6 +33,7 @@ router.get(
     let totalDisbursed = 0;
     let outstanding = 0;
     let overdueAmount = 0;
+    let defaultedBalance = 0;
     let interestEarned = 0;
     let maturedDue = 0;
     let maturedCollected = 0;
@@ -48,11 +49,17 @@ router.get(
       totalDisbursed += loan.principal;
       statusCounts[loan.status] = (statusCounts[loan.status] ?? 0) + 1;
       const rollup = rollupLoan(loan, settings, ref);
-      outstanding += rollup.outstanding;
-      overdueAmount += rollup.overdueAmount;
-      actionRequiredCount += rollup.actionRequiredCount + (rollup.loanDefaultEligible ? 1 : 0);
       portfolio[loan.frequency].count += 1;
-      portfolio[loan.frequency].outstanding += rollup.outstanding;
+      if (loan.status === 'DEFAULTED') {
+        // Written-off balances are bad debt, not collectible portfolio.
+        defaultedBalance += rollup.outstanding;
+      } else {
+        outstanding += rollup.outstanding;
+        overdueAmount += rollup.overdueAmount;
+        portfolio[loan.frequency].outstanding += rollup.outstanding;
+        // Matches /action-required, which only looks at collectible loans.
+        actionRequiredCount += rollup.actionRequiredCount + (rollup.loanDefaultEligible ? 1 : 0);
+      }
 
       const grace = effectiveGraceDays(loan, settings);
       for (const inst of loan.schedule) {
@@ -134,6 +141,7 @@ router.get(
         outstanding: round2(outstanding),
         interestEarned: round2(interestEarned),
         overdueAmount: round2(overdueAmount),
+        defaultedBalance: round2(defaultedBalance),
         activeLoans: statusCounts.ACTIVE ?? 0,
         closedLoans: statusCounts.CLOSED ?? 0,
         defaultedLoans: statusCounts.DEFAULTED ?? 0,

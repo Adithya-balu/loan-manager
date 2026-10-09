@@ -22,7 +22,7 @@ export function SettingsPage() {
 
   function update(index: number, key: 'graceDays' | 'defaultThresholdDays', value: string) {
     setRows((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, [key]: Math.max(0, Number(value) || 0) } : r)),
+      prev.map((r, i) => (i === index ? { ...r, [key]: Math.max(0, Math.trunc(Number(value)) || 0) } : r)),
     );
   }
 

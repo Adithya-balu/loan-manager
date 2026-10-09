@@ -1,8 +1,24 @@
 import { parseISODate, toISODate } from '@loan/shared';
 
-/** Today's date at UTC midnight (date-only semantics). */
+/**
+ * Timezone the business runs in (IANA name). "Today", due dates and the
+ * future-payment check all follow this, so a collection at 01:00 IST counts
+ * for the Indian calendar day even though UTC is still on the previous one.
+ */
+export function businessTimeZone(): string {
+  return process.env.APP_TIMEZONE || 'Asia/Kolkata';
+}
+
+/** Today's date in the business timezone, as UTC midnight (date-only semantics). */
 export function today(): Date {
-  return parseISODate(toISODate(new Date()));
+  // en-CA formats as yyyy-mm-dd.
+  const local = new Intl.DateTimeFormat('en-CA', {
+    timeZone: businessTimeZone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  return parseISODate(local);
 }
 
 /** Strip a DateTime down to its UTC-midnight date. */

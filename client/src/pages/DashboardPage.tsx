@@ -84,7 +84,7 @@ export function DashboardPage() {
         </Link>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard label={t('dashboard.totalDisbursed')} value={formatCurrency(kpis.totalDisbursed)} />
         <StatCard label={t('dashboard.outstanding')} value={formatCurrency(kpis.outstanding)} />
         <StatCard
@@ -96,6 +96,12 @@ export function DashboardPage() {
           label={t('dashboard.overdue')}
           value={formatCurrency(kpis.overdueAmount)}
           tone={kpis.overdueAmount > 0 ? 'danger' : 'default'}
+        />
+        <StatCard
+          label={t('dashboard.defaultedBalance')}
+          value={formatCurrency(kpis.defaultedBalance)}
+          hint={t('dashboard.defaultedBalanceHint')}
+          tone={kpis.defaultedBalance > 0 ? 'danger' : 'default'}
         />
       </div>
 

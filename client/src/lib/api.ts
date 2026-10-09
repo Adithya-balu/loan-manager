@@ -32,6 +32,9 @@ const BASE = '/api';
 /** Fired whenever a request comes back 401 outside of the login/me flow, so the app can force a re-login. */
 export const AUTH_EXPIRED_EVENT = 'auth:expired';
 
+/** Fired after any successful change (POST/PUT/DELETE outside auth) so summaries like the sidebar badge can refresh. */
+export const DATA_CHANGED_EVENT = 'data:changed';
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -62,6 +65,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     }
     throw new ApiError(message, res.status);
+  }
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' && !path.startsWith('/auth/')) {
+    window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
