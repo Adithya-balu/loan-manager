@@ -75,3 +75,18 @@ describe('LoanDetailPage — settled loans (#2)', () => {
     expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
   });
 });
+
+describe('LoanDetailPage — non-active loans (#7)', () => {
+  it('hides Capitalize/Default, Collect and Edit on a DEFAULTED loan', async () => {
+    await show(loanDetail({ status: 'DEFAULTED' }));
+    expect(screen.queryByRole('button', { name: /Capitalize|^Default$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Collect' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('shows Default on an overdue installment of an ACTIVE loan', async () => {
+    await show();
+    expect(screen.getByRole('button', { name: 'Default' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+  });
+});

@@ -1,8 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import { Prisma } from '@prisma/client';
-import { DUPLICATE_CUSTOMER_NUMBER, DUPLICATE_USER_EMAIL } from '@loan/shared';
 import customersRouter from './routes/customers.js';
 import loansRouter from './routes/loans.js';
 import paymentsRouter from './routes/payments.js';
@@ -13,6 +11,7 @@ import companyRouter from './routes/company.js';
 import authRouter from './routes/auth.js';
 import { requireAuth } from './middleware/auth.js';
 import { UPLOADS_DIR } from './lib/upload.js';
+import { errorHandler } from './lib/errors.js';
 
 const app = express();
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
@@ -34,17 +33,6 @@ app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/config', requireAuth, configRouter);
 app.use('/api/company', requireAuth, companyRouter);
 
-// Central error handler.
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-    const target = String(err.meta?.target ?? '');
-    if (target.includes('customerNumber')) return res.status(409).json({ error: DUPLICATE_CUSTOMER_NUMBER });
-    if (target.includes('email')) return res.status(409).json({ error: DUPLICATE_USER_EMAIL });
-    return res.status(409).json({ error: 'A record with that value already exists' });
-  }
-  const message = err instanceof Error ? err.message : 'Internal server error';
-  console.error(err);
-  res.status(400).json({ error: message });
-});
+app.use(errorHandler);
 
 export default app;

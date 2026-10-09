@@ -366,10 +366,14 @@ async function assertNotSettled(tx: TxClient, loanId: string) {
   }
 }
 
-/** Reject payment dates that fall before the loan was disbursed. */
+/** Reject payment dates before the loan was disbursed or after today. */
 function assertPaymentDateAllowed(disbursementDate: Date, payDate: Date) {
+  if (Number.isNaN(payDate.getTime())) throw new Error('Payment date is invalid');
   if (dateOnly(payDate).getTime() < dateOnly(disbursementDate).getTime()) {
     throw new Error("Payment date can't be before the loan's disbursement date");
+  }
+  if (dateOnly(payDate).getTime() > today().getTime()) {
+    throw new Error("Payment date can't be in the future");
   }
 }
 
@@ -384,6 +388,7 @@ export async function recordPayment(input: RecordPaymentInput) {
   const payDate = new Date(input.date);
   return prisma.$transaction(async (tx) => {
     const loan = await tx.loan.findUniqueOrThrow({ where: { id: input.loanId } });
+    if (loan.status !== 'ACTIVE') throw new Error('Payments can only be recorded on active loans');
     assertPaymentDateAllowed(loan.disbursementDate, payDate);
 
     const before = await tx.installment.findMany({
@@ -483,6 +488,7 @@ export async function deletePayment(paymentId: string) {
  * (same remaining count, interest recomputed on the new outstanding).
  */
 export async function capitalizeInstallment(installmentId: string) {
+  const settings = await getSettingsMap();
   return prisma.$transaction(async (tx) => {
     const inst = await tx.installment.findUniqueOrThrow({
       where: { id: installmentId },
@@ -491,6 +497,12 @@ export async function capitalizeInstallment(installmentId: string) {
     if (inst.status === 'DEFAULTED') throw new Error('Installment already defaulted');
 
     const loan = inst.loan;
+    if (loan.status !== 'ACTIVE') {
+      throw new Error('Only installments on active loans can be capitalized or defaulted');
+    }
+    if (!enrichInstallment(inst, effectiveGraceDays(loan, settings)).actionRequired) {
+      throw new Error('Only installments overdue past their grace period can be capitalized or defaulted');
+    }
     const unpaid = round2(inst.amountDue - inst.paidAmount);
     if (unpaid <= 0.005) throw new Error('Installment has no unpaid amount to capitalize');
 
@@ -547,7 +559,10 @@ export async function capitalizeInstallment(installmentId: string) {
   });
 }
 
+/** Admin override: allowed on any ACTIVE loan, whether or not it has crossed its threshold. */
 export async function markLoanDefaulted(loanId: string) {
+  const loan = await prisma.loan.findUniqueOrThrow({ where: { id: loanId } });
+  if (loan.status !== 'ACTIVE') throw new Error('Only active loans can be marked defaulted');
   return prisma.loan.update({ where: { id: loanId }, data: { status: 'DEFAULTED' } });
 }
 

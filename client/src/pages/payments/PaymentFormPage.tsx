@@ -150,7 +150,7 @@ export function PaymentFormPage() {
                 />
               </Field>
               <Field label="Date" required>
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                <Input type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-4">

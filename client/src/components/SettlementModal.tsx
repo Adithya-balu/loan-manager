@@ -120,7 +120,7 @@ export function SettlementModal({
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Date" required>
-            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            <Input type="date" value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} />
           </Field>
           <Field label="Mode">
             <Select value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>

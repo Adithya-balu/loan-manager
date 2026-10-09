@@ -195,6 +195,13 @@ router.put(
 router.delete(
   '/:id',
   asyncHandler(async (req, res) => {
+    const loans = await prisma.loan.count({ where: { customerId: req.params.id } });
+    if (loans > 0) {
+      res.status(409).json({
+        error: `This customer has ${loans} ${loans === 1 ? 'loan' : 'loans'}. Delete those loans first.`,
+      });
+      return;
+    }
     await prisma.customer.delete({ where: { id: req.params.id } });
     res.status(204).end();
   }),

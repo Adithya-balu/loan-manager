@@ -36,6 +36,9 @@ const loanSchema = z.object({
   guarantorAddress: z.string().optional().nullable(),
   graceDaysOverride: z.number().int().min(0).nullable().optional(),
   defaultThresholdDaysOverride: z.number().int().min(0).nullable().optional(),
+}).refine((l) => l.repaymentStartDate.slice(0, 10) >= l.disbursementDate.slice(0, 10), {
+  message: "Repayment start date can't be before the disbursement date",
+  path: ['repaymentStartDate'],
 });
 
 const previewSchema = z.object({
@@ -121,6 +124,7 @@ router.put(
       where: { id: req.params.id },
       include: { payments: true },
     });
+    if (existing.status !== 'ACTIVE') throw new Error('Only active loans can be edited');
     if (existing.payments.length > 0) {
       throw new Error('Cannot edit loan terms after payments have been recorded');
     }

@@ -93,7 +93,12 @@ export function CustomerDetailPage() {
             <Link to={`/customers/${customer.id}/edit`}>
               <Button variant="secondary">Edit</Button>
             </Link>
-            <Button variant="danger" onClick={() => setConfirmDelete(true)}>
+            <Button
+              variant="danger"
+              onClick={() => setConfirmDelete(true)}
+              disabled={loans.length > 0}
+              title={loans.length > 0 ? "Customers with loans can't be deleted. Delete their loans first." : undefined}
+            >
               Delete
             </Button>
           </>
@@ -246,7 +251,7 @@ export function CustomerDetailPage() {
         danger
         busy={deleting}
         confirmLabel="Delete"
-        message="This permanently removes the customer and all associated loans, schedules and payments. This cannot be undone."
+        message="This permanently removes the customer and their documents. This cannot be undone."
         onConfirm={onDeleteCustomer}
         onCancel={() => setConfirmDelete(false)}
       />

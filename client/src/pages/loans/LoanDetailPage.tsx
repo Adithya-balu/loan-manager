@@ -182,7 +182,7 @@ export function LoanDetailPage() {
                 {t('loanDetail.markDefaulted')}
               </Button>
             )}
-            {!hasPayments && (
+            {data.status === 'ACTIVE' && !hasPayments && (
               <Link to={`/loans/${id}/edit`}>
                 <Button variant="secondary">{t('common.edit')}</Button>
               </Link>
@@ -385,7 +385,7 @@ export function LoanDetailPage() {
                         {t('loanDetail.collect')}
                       </Button>
                     )}
-                    {inst.actionRequired && (
+                    {data.status === 'ACTIVE' && inst.actionRequired && (
                       <Button size="sm" variant="danger" onClick={() => setCapTarget(inst)}>
                         {inst.paidAmount > 0 ? t('loanDetail.capitalize') : t('loanDetail.default')}
                       </Button>
