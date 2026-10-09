@@ -113,9 +113,20 @@ export function TodayCollectionPage() {
                         </div>
                       </TD>
                       <TD align="right">
-                        <Button size="sm" onClick={() => collect(item)}>
-                          Collect
-                        </Button>
+                        {item.blockedBySequence !== null ? (
+                          <div className="flex flex-col items-end gap-0.5">
+                            <Button size="sm" disabled>
+                              Collect
+                            </Button>
+                            <span className="text-[11px] text-slate-400">
+                              Collect #{item.blockedBySequence} first
+                            </span>
+                          </div>
+                        ) : (
+                          <Button size="sm" onClick={() => collect(item)}>
+                            Collect
+                          </Button>
+                        )}
                       </TD>
                     </TR>
                   ))}

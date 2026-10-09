@@ -10,6 +10,7 @@ import {
   verifyPassword,
 } from '../lib/auth.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { DUPLICATE_USER_EMAIL } from '@loan/shared';
 
 const router = Router();
 
@@ -71,7 +72,8 @@ router.post(
     const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
     const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
     if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
+      // 400, not 401: the session is fine, and clients treat 401 as "logged out".
+      return res.status(400).json({ error: 'Current password is incorrect' });
     }
     await prisma.user.update({
       where: { id: user.id },
@@ -96,7 +98,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const data = createUserSchema.parse(req.body);
     const existing = await prisma.user.findUnique({ where: { email: data.email.toLowerCase() } });
-    if (existing) return res.status(409).json({ error: 'A user with that email already exists' });
+    if (existing) return res.status(409).json({ error: DUPLICATE_USER_EMAIL });
     const user = await prisma.user.create({
       data: {
         name: data.name,

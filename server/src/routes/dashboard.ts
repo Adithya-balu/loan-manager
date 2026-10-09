@@ -33,6 +33,7 @@ router.get(
     let totalDisbursed = 0;
     let outstanding = 0;
     let overdueAmount = 0;
+    let defaultedBalance = 0;
     let interestEarned = 0;
     let maturedDue = 0;
     let maturedCollected = 0;
@@ -48,15 +49,20 @@ router.get(
       totalDisbursed += loan.principal;
       statusCounts[loan.status] = (statusCounts[loan.status] ?? 0) + 1;
       const rollup = rollupLoan(loan, settings, ref);
-      outstanding += rollup.outstanding;
-      overdueAmount += rollup.overdueAmount;
-      actionRequiredCount += rollup.actionRequiredCount + (rollup.loanDefaultEligible ? 1 : 0);
       portfolio[loan.frequency].count += 1;
-      portfolio[loan.frequency].outstanding += rollup.outstanding;
+      if (loan.status === 'DEFAULTED') {
+        // Written-off balances are bad debt, not collectible portfolio.
+        defaultedBalance += rollup.outstanding;
+      } else {
+        outstanding += rollup.outstanding;
+        overdueAmount += rollup.overdueAmount;
+        portfolio[loan.frequency].outstanding += rollup.outstanding;
+        // Matches /action-required, which only looks at collectible loans.
+        actionRequiredCount += rollup.actionRequiredCount + (rollup.loanDefaultEligible ? 1 : 0);
+      }
 
       const grace = effectiveGraceDays(loan, settings);
       for (const inst of loan.schedule) {
-        if (inst.status === 'PAID') interestEarned += inst.interestComponent;
         const e = enrichInstallment(inst, grace, ref);
         const due = dateOnly(inst.dueDate);
         if (due.getTime() <= ref.getTime() && inst.status !== 'DEFAULTED') {
@@ -77,6 +83,8 @@ router.get(
       if (toISODate(d) === todayISO) collectedToday += p.amount;
       if (d.getTime() >= weekAgo.getTime()) collectedWeek += p.amount;
       if (d.getTime() >= monthStart.getTime()) collectedMonth += p.amount;
+      // Interest income = the interest part of cash received (interest is collected first).
+      interestEarned += p.interestAmount;
     }
 
     // 6-month disbursement vs collection trend.
@@ -96,17 +104,12 @@ router.get(
     for (const loan of loans) {
       const k = monthKey(dateOnly(loan.disbursementDate));
       if (k in disbursedByMonth) disbursedByMonth[k] += loan.principal;
-      // Revenue = interest earned, booked in the month the installment was paid.
-      for (const inst of loan.schedule) {
-        if (inst.status === 'PAID' && inst.paidDate) {
-          const rk = monthKey(dateOnly(inst.paidDate));
-          if (rk in revenueByMonth) revenueByMonth[rk] += inst.interestComponent;
-        }
-      }
     }
     for (const p of payments) {
       const k = monthKey(dateOnly(p.date));
       if (k in collectedByMonth) collectedByMonth[k] += p.amount;
+      // Revenue = interest received, booked in the month it was received.
+      if (k in revenueByMonth) revenueByMonth[k] += p.interestAmount;
     }
     const trend = months.map((m) => ({
       month: m,
@@ -130,6 +133,7 @@ router.get(
         outstanding: round2(outstanding),
         interestEarned: round2(interestEarned),
         overdueAmount: round2(overdueAmount),
+        defaultedBalance: round2(defaultedBalance),
         activeLoans: statusCounts.ACTIVE ?? 0,
         closedLoans: statusCounts.CLOSED ?? 0,
         defaultedLoans: statusCounts.DEFAULTED ?? 0,

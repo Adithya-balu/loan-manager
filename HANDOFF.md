@@ -1,6 +1,6 @@
 # Handoff — Loan Manager
 
-Last updated: 2026-10-08
+Last updated: 2026-10-10 (loan life-cycle test suite)
 
 This document captures the current state of the project, what is done, what is
 not, and the gotchas you need to know to keep working on it. For setup and usage
@@ -27,8 +27,12 @@ see [README.md](README.md).
 - **Dev servers:** `npm run dev` from the repo root. Server scripts now load
   `server/.env` (`tsx watch --env-file=.env`). API: http://localhost:4000,
   client: http://localhost:5173 (Vite falls back to 5174+ if occupied).
-- **Not done:** the follow-ups listed under "Next session" below, plus
-  client tests, CI, and deployment.
+- **2026-10-09 fixes:** an end-to-end test pass found money-accounting,
+  workflow and validation bugs; all are fixed with regression tests (see
+  "Fixes from the 2026-10-09 test pass"). `npm test` now runs shared, server
+  integration and client component tests (125+).
+- **Not done:** Tamil for the remaining pages (see "Next session"), plus CI
+  and deployment.
 
 ---
 
@@ -50,9 +54,21 @@ npm run dev
 Migrations (hand-written, apply with deploy — `migrate dev` prompts):
 
 ```bash
-cd server && npx prisma migrate deploy
+cd server && npx prisma migrate deploy   # needs DIRECT_URL in server/.env (same as DATABASE_URL locally)
 npx prisma db seed    # loads .env; prefer this over `npm run db:seed`
 ```
+
+Tests:
+
+```bash
+npm test                         # shared + server + client
+npm test --workspace server      # integration tests only
+```
+
+Server tests run against `<your db>_test` (derived from `DATABASE_URL`, or
+`TEST_DATABASE_URL`), which is created and migrated automatically and
+**truncated by every test file**. The config refuses any database whose name
+doesn't end in `_test`.
 
 ---
 
@@ -101,9 +117,9 @@ Migration: `server/prisma/migrations/20261007000000_features/migration.sql`
 
 - Customer form/detail: photo, Aadhaar, location, 10/12-digit validation.
 - Loan form: "+ New" customer modal (`CustomerQuickCreate`), disbursement
-  mode, optional guarantor fields (always visible today — see follow-up #3).
+  mode, optional guarantor fields (collapsed behind a toggle).
 - Loan detail: documents card, guarantor/disbursement, "Pre-close / Settle"
-  in the page header (see follow-up #7).
+  on the Repayment Schedule card header.
 - Dashboard: Revenue line chart (last 6 months).
 - Reports (`/reports`): Collection, Outstanding, Customer statement, Revenue.
 - Company (`/company`, ADMIN): name/logo/address/phone/email.
@@ -113,101 +129,186 @@ Migration: `server/prisma/migrations/20261007000000_features/migration.sql`
 
 ---
 
-## Next session (found while using the app)
+## Follow-ups completed (2026-10-08, second pass)
 
-These are the remaining items from review. Implement in roughly this order.
+| # | Item | Where |
+| --- | --- | --- |
+| 1 | Sidebar refreshes after Company save / logo upload (`company:updated` window event). Logo filenames are unique per upload, so no cache-busting needed. | `CompanyProfilePage`, `Layout` |
+| 3 | Guarantor block collapsed by default ("Add guarantor details"); starts expanded when editing a loan that already has guarantor data. | `LoanFormPage` |
+| 4 | Loans list has a frequency filter (All / Daily / Weekly / Monthly), client-side. | `LoansListPage` |
+| 5 | Prisma `P2002` mapped in the central error handler → **409** `"Customer number already exists"` / `"A user with that email already exists"`. Strings live in `@loan/shared` (`DUPLICATE_CUSTOMER_NUMBER`, `DUPLICATE_USER_EMAIL`); the customer form shows it inline on the field. | `server/src/index.ts`, `shared/src/types.ts`, `CustomerFormPage` |
+| 7 | "Pre-close / Settle" moved to the Repayment Schedule card header (ACTIVE only). | `LoanDetailPage` |
+| 8 | `GET /loans/:id/settlement?date=YYYY-MM-DD`; modal re-quotes 300 ms after the date changes; confirm sends `quote.asOf`. `settleLoan` now computes the quote **as of the settlement date** (not server today) and rejects dates before disbursement. | `routes/loans.ts`, `loanService.ts`, `SettlementModal` |
+| 10 | Allocation always starts at the oldest open installment (also on replay after edit/delete). `recordPayment` rejects an `installmentId` that is not the oldest open one (400, "collect installment #N first"). UI disables Collect on later installments with a hint; Today's Collection items carry `blockedBySequence` so this works even when the overdue row is hidden. | `loanService.ts`, `routes/actions.ts`, `LoanDetailPage`, `TodayCollectionPage` |
+| 2 | **Tamil — first slice.** See below. | `client/src/i18n/*` |
 
-### 1. Refresh on saving the Company Profile
+### Tamil (i18n) — what exists and what's left
 
-`CompanyProfilePage` calls `reload()` after save/logo upload, so the **form**
-updates. The **sidebar** does not: `Layout` loads company once via
-`useApi(() => api.getCompany(), [])` and never hears about the save.
+- `client/src/i18n/en.ts` is the source dictionary (flat keys, `{placeholder}`
+  interpolation). `ta.ts` is typed `Record<MessageKey, string>`, so a missing
+  Tamil key fails `tsc`.
+- `I18nProvider` / `useI18n()` → `t(key, vars)` and `tNode(key, vars)` (for
+  placeholders that are React nodes, e.g. a bold amount). Language persisted
+  in `localStorage` (`lm_lang`), sets `<html lang>`. Switcher is in the
+  sidebar footer (replaced the static "INR · en-IN" label).
+- Translated: sidebar/nav, login, dashboard, loan form, loan detail, and the
+  shared UI kit (status/risk badges, loading/retry, confirm dialog buttons).
+- **Not yet translated:** customers (list/detail/form/quick-create), loans
+  list, repayments, Today's Collection, Action Required, reports, company,
+  account, settings, Payment/Settlement modals, `FREQUENCY_LABEL` in
+  untranslated pages. Server error messages are still English.
+- Numbers/currency stay `en-IN`; only the dashboard month labels switch to
+  `ta-IN`. Customer-entered data is never translated.
+- The Tamil copy was machine-authored — **have a native speaker review
+  `ta.ts`** (especially financial terms: அசல், நிலுவை, ஜாமீன்தாரர், தவறியது).
 
-Fix options (pick one):
+## Fixes from the 2026-10-09 test pass
 
-- Lift company into a small `CompanyContext` (same pattern as `AuthContext`)
-  and have the profile page write into it after save.
-- Or dispatch a window event (`company:updated`) that `Layout` listens for
-  and re-fetches.
+Product decisions confirmed for this pass: payments only on **ACTIVE** loans;
+dashboard shows defaulted balances as a **separate KPI**; customers with loans
+**can't be deleted**; "Mark loan defaulted" stays a manual admin override
+(ACTIVE loans only); uploads go to **Vercel Blob** when configured.
 
-Also worth checking: after a logo upload the sidebar `<img src={logoUrl}>`
-may stay cached if the URL does not change. Bust with `?t=updatedAt` if needed.
+| Area | Behaviour now | Tests |
+| --- | --- | --- |
+| Replay after capitalization | Capitalized installments are refilled up to the cash they held (`amountDue − capitalizedAmount`); edits that would remove that money are rejected. Previously money was double-counted. | `server/test/accounting.test.ts` |
+| Settlement | `Payment.kind = SETTLEMENT`; it can't be edited, deleting it undoes the settlement; a settled loan's other payments are locked (API + UI). | `accounting.test.ts`, `LoanDetailPage.test.tsx` |
+| Settlement accounting | Waived future interest → `Installment.waivedAmount`; settlement interest → `Payment.settlementInterest`. Collected = sum of payments; interest earned / revenue exclude waived interest. | `accounting.test.ts` |
+| Allocation performance | Allocation runs in memory with one write per changed installment (long daily loans used to risk the 5 s transaction timeout). | `payments.test.ts` (200-installment loan) |
+| Customer numbers | Next = highest `C####` + 1, retried on a concurrent collision (was count + 1, which collided after any delete). | `customers.test.ts` |
+| Change password | Wrong current password → 400 (was 401, which logged the user out). | `auth.test.ts`, `client/src/lib/api.test.ts` |
+| Action Required | Items carry `blockedBySequence`; later Collect buttons are disabled. | `collections.test.ts`, `ActionRequiredPage.test.tsx` |
+| Server rules | No payments on non-ACTIVE loans; no future-dated payments/edits/settlements; capitalize/default only past grace on ACTIVE loans; default-loan only on ACTIVE; repayment start ≥ disbursement; only ACTIVE loans editable; customer delete with loans → 409. | `rules.test.ts` |
+| Errors | `server/src/lib/errors.ts`: readable validation messages, 404 for missing records, generic 500 for database errors (no Prisma text or paths leak). | `errors.test.ts` |
+| Dashboard / reports | Outstanding/Overdue exclude DEFAULTED loans; new `kpis.defaultedBalance`; Outstanding report = ACTIVE only; statement report handles errors and stale responses. | `admin.test.ts`, `DashboardPage.test.tsx`, `ReportsPage.test.tsx` |
+| Dates | Server "today" follows `APP_TIMEZONE` (default `Asia/Kolkata`); client defaults use the local date (was UTC — wrong before 05:30 IST). | `dates.test.ts`, `format.test.ts` |
+| UI | Sidebar badge refreshes after any change (`data:changed` event from `api.ts`); `Field` links labels to inputs; whole-number checks on day fields. | `Layout.test.tsx`, `Field.test.tsx` |
+| Uploads | `server/src/lib/storage.ts`: with `BLOB_READ_WRITE_TOKEN`, photos/loan docs/logo go to private Blob, served via `GET /api/files/*` (auth); 4 MB cap there (Vercel body limit). Without it, local `server/uploads`. | `storage.test.ts` (Blob mocked) |
 
-### 2. Tamil language support
+Migration `20261009000000_settlement_accounting` adds `Payment.kind`,
+`Payment.settlementInterest`, `Installment.waivedAmount`, and tags existing
+settlement payments. Settlements recorded **before** this migration still
+have `waivedAmount = 0`, so their waived interest still counts as earned; re-settle
+(undo + settle) them if exact historical revenue matters.
 
-Not started. App copy is hardcoded English. Suggested approach:
+## Loan calculation & life-cycle test suite (2026-10-10)
 
-- Add a small `i18n` context (`en` | `ta`) persisted in `localStorage`.
-- Extract user-visible strings from pages + UI kit into
-  `client/src/i18n/en.ts` and `ta.ts`.
-- Keep numbers/currency as `en-IN` / INR unless you also want Tamil
-  number formatting.
-- Do not translate customer-entered data (names, notes, document labels).
+Two calculation bugs were found and fixed while writing these tests:
 
-Scope is large (every page). Start with nav + login + dashboard + loan
-create/detail if you want a first slice.
+1. **Schedule rounding** (`shared/src/finance.ts`). Rounding one equal slice
+   and letting the last installment absorb the residual made the last row's
+   interest **negative** on small daily/weekly loans (e.g. ₹1,000 daily at 12%
+   for 365 days) and left reducing-balance loans with a lopsided final
+   installment. Slices are now spread by running totals (`spreadEvenly`), and
+   reducing schedules round along the exact amortization path: every
+   installment is within a paisa of the exact figure, nothing is negative, and
+   totals reconcile exactly. Installments may now differ by one paisa (e.g.
+   9,333.33 / 9,333.34). Schedules already stored are unchanged.
+2. **Settlement interest start** (`computeSettlement`). Interest-to-date was
+   counted from disbursement whenever the latest due installment had been
+   **paid**, double-charging that period (paying on time made settling dearer
+   than settling in arrears). It now runs from the latest due date, paid or not.
 
-### 3. Hide guarantor fields behind a toggle
+| Layer | File | Covers |
+| --- | --- | --- |
+| Finance engine | `shared/src/schedule.test.ts` | Hand-computed flat & EMI examples (₹1L @ 12% → EMI 8,884.88, interest 6,618.55; weekly/daily T), 0% and single-installment loans, invariants over a 4,704-combination matrix (reconciles to the paisa, no negatives, level installments), re-amortization |
+| | `shared/src/dates-money.test.ts` | Month-end clamping, leap years, year rollover, daily/weekly/monthly due dates, `round2`, INR formatting |
+| | `shared/src/risk.test.ts` | Risk weights against a hand calculation, each factor, clamping, band thresholds |
+| Server math (no DB) | `server/test/lifecycleMath.test.ts` | Installment status at every boundary, grace/threshold edges and overrides (incl. 0), roll-ups (cash vs waived, defaulted exclusion, overpayment), default eligibility, settlement quotes (interest-first partials, anchors, dates) |
+| Life-cycle journeys (API) | `server/test/lifecycle.test.ts` | On-time EMI payoff → CLOSED + LOW risk; partial/late/overpayment; missed installment → capitalization → re-amortization → recovery; default/write-off; settlement (current and in arrears) + undo; payment-history corrections; grace settings; multi-loan customer totals. Every step reconciles the ledger. |
+| | `server/test/{payments,accounting,rules,collections,settlement,…}.test.ts` | Allocation, replay, settlement accounting, server rules, errors, uploads |
+| Client | `client/src/pages/loans/LoanFormPage.test.tsx` and others | Live schedule preview with the real engine, submit payload, guarantor toggle, locked terms; plus page gates from earlier passes |
 
-On `LoanFormPage` the guarantor block is always expanded. Default it
-**collapsed**. Show the four fields only when the user opens "Add guarantor
-details". If any guarantor field is already filled (edit flow), start
-expanded.
+## Interest before principal (2026-10-10)
 
-### 4. Loans page — filter by type
+Adopted from Frappe Lending (see below). Within each installment, money now
+fills **interest first, then principal**; installments are still paid
+oldest-first.
 
-`LoansListPage` filters by **status** and customer search only. Add a
-frequency filter (`DAILY` / `WEEKLY` / `MONTHLY` / All) next to the status
-`<Select>`. Client-side is enough; `listLoans()` already returns `frequency`.
+- Data: `Installment.interestPaid` / `principalPaid` (with `waivedAmount`,
+  they add up to `paidAmount`), `Payment.interestAmount` / `principalAmount`
+  (a settlement's interest includes its interest-to-date). Migration
+  `20261010000000_interest_principal_split`.
+- Logic: `applyToInstallment` / `allocatePayment` / `applySettlement` in
+  `server/src/lib/loanService.ts`. Replays recompute every split; a replay of
+  a settled loan re-applies its settlement.
+- Reporting: interest earned and monthly revenue = interest received, by
+  payment date (previously only fully paid installments counted, so partial
+  payments showed no income). Loan roll-up adds `interestCollected`,
+  `principalCollected`, `outstandingPrincipal` (shown on the loan page).
+  Settlement quotes use `principalPaid` directly.
+- **Deploying:** after `prisma migrate deploy`, run
+  `npm run backfill:split --workspace server` once. The migration fills the installment
+  splits; the script replays history for exact payment splits (until then old
+  payments count as principal-only). It reports any loan it can't rebuild.
+  Already run on this machine's dev database (7/7 loans).
+- Tests: `server/test/interestSplit.test.ts`; split invariants are checked at
+  every step of `server/test/lifecycle.test.ts`.
 
-### 5. Unique customer number error handling
+## Future consideration (from the Frappe Lending review)
 
-`Customer.customerNumber` is `@unique`. Creating/updating with a duplicate
-throws a raw Prisma unique-constraint error that surfaces as a generic 400
-toast. Catch `P2002` in the customers route (or the central error handler)
-and return a clear `"Customer number already exists"` (and the same for
-email on users). Mirror that string in the customer form.
+Reviewed `frappe/lending` (develop, 2026-10-10). Not implemented — kept here
+for prioritisation. Effort: S small, M medium.
 
-### 7. Move Pre-close / Settle onto the Repayment Schedule
+1. **Days-past-due as one figure (S).** `DPD = as-of − oldest unpaid due + 1`
+   (0 if nothing due), snapshot daily, mapped to configurable buckets (e.g.
+   1–30 / 31–60 / 61–90). Would drive Action Required, the default threshold
+   and risk from one number. (`loan/loan.py: update_days_past_due_in_loans`)
+2. **Closure tolerances per loan type (S).** Auto-waive a shortfall up to ₹X
+   and accept an overpayment up to ₹Y when closing; keep excess as
+   refundable credit instead of crediting the last installment.
+   (`loan_product.write_off_amount`, `excess_amount_acceptance_limit`)
+3. **Promise-to-pay + collection activity log (S–M).** Promise date/amount,
+   auto-marked Broken when the date passes unpaid; log calls/visits with an
+   outcome. Fits field collection. (`promise_to_pay`, `collection_activity`)
+4. **Part-prepayment: reduce tenure or reduce EMI (M).** Money left after
+   clearing dues rebuilds the remaining schedule — same EMI with fewer rows,
+   or same count with a lower EMI. Today extra money just pays off the last
+   installments. (`advance_payment_handling`, `loan_restructure`)
+5. **Optional penal interest per loan type, off by default (M).** Daily
+   `overdue amount × rate / 36500` once grace has passed, counted from the
+   due date, reversed if a backdated payment covers the due. Product
+   decision: changes what borrowers owe.
+   (`loan_interest_accrual.py: calculate_penal_interest_for_loans`)
+6. **Write-off with later recovery, and loan freeze (M).** Today DEFAULTED is
+   a dead end. Frappe writes off principal and still accepts recovery
+   payments (waived penalty/interest first, then principal); a freeze date
+   stops interest and DPD (legal/deceased cases). (`loan_write_off`)
+7. **Broken-period interest and EMI rounding options (M).** Interest for odd
+   days when the first due date isn't one period after disbursement
+   (upfront, first/last EMI or amortized); EMI rounding Nearest/Up/None.
+8. **Configurable payment order per status (M).** Frappe orders dues by
+   component (EMI / penalty / charges) with separate orders for standard,
+   NPA, written-off and settlement. Only needed once penalties/charges exist.
 
-The button currently lives in the `PageHeader` actions on `LoanDetailPage`.
-Put it on the **Repayment Schedule** card header (or as a row under the
-schedule totals) so it sits with the numbers it acts on. Keep it visible
-only while `status === 'ACTIVE'`.
+Smaller notes from the review:
 
-### 8. Recalculate pre-close / settle when the date changes
+- **Backdated new payments:** edits/deletes replay history in date order, but
+  a newly recorded payment dated before existing ones is applied on top, so
+  installment paid dates (used by risk and the statement) can be off. Cheap
+  fix: replay when a payment is dated before the newest one.
+- **Day-count convention:** decide explicitly. Our weekly EMI uses rate/52
+  while settlement interest is per day at /365; Frappe makes this a setting
+  (Actual/365, Actual/360, 30/360, …).
+- **Tests to add (from their suite):** two payments on the same day,
+  cancelling the payment that closed a loan, an advance payment before the
+  first due date, overpayment just over a tolerance, concurrent payments on
+  one loan (they lock rows to avoid double allocation).
+- **Out of scope for now:** GL accounting/accrual jobs, NPA suspense
+  accounting, IRAC provisioning, co-lending, collateral/margin calls.
 
-**Yes.** Today `GET /loans/:id/settlement` always uses server `today()`.
-The date field in `SettlementModal` is only sent on **confirm**, so
-changing it does not change the quote (interest-to-date depends on the
-as-of date).
+## Next session
 
-Do this:
+1. Finish Tamil across the remaining pages (list above).
+2. Browser end-to-end tests (Playwright) — couldn't run here: Chrome
+   automation is blocked on this machine.
+3. Older backlog below.
 
-- Change `GET /loans/:id/settlement?date=YYYY-MM-DD` (or POST a quote
-  endpoint) and pass that date into `computeSettlement(..., ref)`.
-- In the modal, refetch the quote whenever `date` changes (debounce ~300ms).
-- Keep confirm using the same date that produced the displayed quote.
-
-### 9. Delete / edit repayment — already on `master` (pre-rebase)
-
-`PUT /payments/:id` and `DELETE /payments/:id` plus loan-detail / payments
-list UI landed in `fae7df0` before this rebase. Treat this item as **done**
-unless you find a remaining edge case (e.g. editing a payment that is not
-the latest, or settlement payments).
-
-### 10. Repayments should be collected in order
-
-`recordPayment` can start at a caller-chosen `installmentId`, which lets a
-collector skip an older open installment. Product intent: always allocate
-from the **oldest open** installment.
-
-- Ignore `installmentId` for allocation order (or reject if it is not the
-  first open one).
-- On Today's Collection / loan schedule, disable **Collect** on later
-  installments while an earlier one is still open (show a hint).
-- Settlement / foreclosure stays a separate path and may close everything
-  at once.
+Verified this pass: client + server `tsc`, `npm run build`, `npm test`
+(12 pass); API smoke tests for duplicate customer number (409), settlement
+quote by date + invalid date (400), out-of-order payment rejected (400),
+in-order payment accepted, `blockedBySequence` on Today's Collection. UI
+changes were type-checked and built but **not clicked through in a browser**.
 
 ---
 
@@ -237,14 +338,16 @@ Two Postgres options:
    `server/.pgdata`, gitignored). Then point `DATABASE_URL` at
    `postgresql://postgres:postgres@localhost:5433/loan_manager?schema=public`.
 
-`server/.env` also needs `PORT=4000`, `CLIENT_ORIGIN="http://localhost:5173"`,
-and `JWT_SECRET`.
+`server/.env` also needs `DIRECT_URL` (same as `DATABASE_URL` locally),
+`PORT=4000`, `CLIENT_ORIGIN="http://localhost:5173"`, and `JWT_SECRET`.
+Optional: `APP_TIMEZONE`, `BLOB_READ_WRITE_TOKEN` (see `server/.env.example`).
 
 Applied migrations:
 
 - `20260818160457_init`
 - `20260819000000_add_users`
 - `20261007000000_features`
+- `20261009000000_settlement_accounting`
 
 ---
 
@@ -289,8 +392,20 @@ Demo data was reseeded after the settlement smoke test.
 8. **Compiled `npm start` path** is `dist/src/index.js` (not `dist/index.js`).
    Running the built server also needs `@loan/shared` resolved; prefer
    `npm run dev` (`tsx`) for local work.
-9. **Settlement quote ignores the modal date** until follow-up #8 is done.
-10. **Customer number uniqueness** is a raw Prisma error until follow-up #5.
+9. **`npm install` after pulling.** `@vercel/blob` is a declared dependency
+   (client + server); `tsc` fails with "Cannot find module '@vercel/blob'" if
+   `node_modules` predates the Vercel commit.
+10. **Payment order is enforced.** A client sending a later `installmentId`
+    gets a 400; omit `installmentId` to just allocate oldest-first.
+11. **`DIRECT_URL` is required.** Prisma's `env()` has no fallback, so
+    `migrate deploy` fails without it.
+12. **Settled loans are frozen.** Only deleting the settlement payment
+    (which undoes the settlement) changes them.
+13. **Tests and random ports.** Server tests bind supertest's server to
+    `127.0.0.1` explicitly; listening on all interfaces let other local
+    processes on the same port answer, causing random 404s/hangs.
+14. **Node 26 + jsdom `localStorage`.** Node's built-in `localStorage` global
+    shadows jsdom's; `client/src/test/setup.ts` installs an in-memory one.
 
 ---
 
@@ -300,8 +415,8 @@ Demo data was reseeded after the settlement smoke test.
 - Penalty model = **capitalize unpaid amount into principal + re-amortize**
   the remaining installments (same count). No separate late-fee entity.
 - Payments are a **free-amount ledger**, auto-allocated to open installments;
-  overpayment credits the final open installment. Follow-up #10 will force
-  oldest-first order.
+  overpayment credits the final open installment. Allocation is always
+  oldest-open-first.
 - Grace + default thresholds measured in **days**, per loan type, overridable
   per loan.
 - All default/capitalization actions are **user-triggered** from Action
@@ -316,8 +431,8 @@ Demo data was reseeded after the settlement smoke test.
 
 - Auth hardening: rate-limit login, password reset, audit log of who
   recorded payments / settlements.
-- Client tests (Vitest + RTL) for schedule preview, payment allocation,
-  capitalization, settlement, login/protected routes.
+- More client tests: loan form preview, payment modal submit flow,
+  login/protected routes.
 - CSV/PDF export of statements / collection sheets.
 - SMS/email due reminders.
 - Bundle size (~720 kB client chunk, Recharts-heavy) — code-split charts.
@@ -330,7 +445,11 @@ Demo data was reseeded after the settlement smoke test.
 - Finance math: `shared/src/finance.ts` (+ `finance.test.ts`).
 - Server business logic: `server/src/lib/loanService.ts` (`recordPayment`,
   `computeSettlement`, `settleLoan`), `riskService.ts`.
-- Uploads: `server/src/lib/upload.ts`, served at `/uploads` behind auth.
+- Uploads: `server/src/lib/upload.ts` (multer), `server/src/lib/storage.ts`
+  (disk vs Blob), `server/src/routes/files.ts` (Blob files behind auth).
+- Errors: `server/src/lib/errors.ts` (central handler).
+- Tests: `server/test/*` (helpers in `helpers.ts`), `client/src/**/*.test.tsx`
+  (render helper and fixtures in `client/src/test/`).
 - Auth: `server/src/lib/auth.ts`, `server/src/middleware/auth.ts`,
   `server/src/routes/auth.ts`, `client/src/context/AuthContext.tsx`.
 - Company: `server/src/routes/company.ts`,

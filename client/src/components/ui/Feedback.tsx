@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react';
+import { useI18n } from '../../i18n/I18nContext';
 
 export function Spinner({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
       <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500 dark:border-slate-600 dark:border-t-indigo-400" />
-      {label ?? 'Loading…'}
+      {label ?? t('common.loading')}
     </div>
   );
 }
@@ -18,6 +20,7 @@ export function LoadingState({ label }: { label?: string }) {
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
       <p className="text-sm text-rose-600">{message}</p>
@@ -26,7 +29,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
           onClick={onRetry}
           className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
         >
-          Retry
+          {t('common.retry')}
         </button>
       )}
     </div>

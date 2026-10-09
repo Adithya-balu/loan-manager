@@ -1,36 +1,53 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
-import { api } from '../lib/api';
+import { api, DATA_CHANGED_EVENT } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { LANGUAGES, useI18n, type Lang } from '../i18n/I18nContext';
+import type { MessageKey } from '../i18n/en';
 
 interface NavItem {
   to: string;
-  label: string;
+  label: MessageKey;
   icon: string;
   end?: boolean;
   adminOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: '▚', end: true },
-  { to: '/customers', label: 'Customers', icon: '☰' },
-  { to: '/loans', label: 'Loans', icon: '₹' },
-  { to: '/repayments', label: 'Repayments', icon: '⇅' },
-  { to: '/collections/today', label: "Today's Collection", icon: '◷' },
-  { to: '/action-required', label: 'Action Required', icon: '!' },
-  { to: '/reports', label: 'Reports', icon: '▤' },
-  { to: '/company', label: 'Company', icon: '🏢', adminOnly: true },
-  { to: '/settings', label: 'Settings', icon: '⚙', adminOnly: true },
+  { to: '/', label: 'nav.dashboard', icon: '▚', end: true },
+  { to: '/customers', label: 'nav.customers', icon: '☰' },
+  { to: '/loans', label: 'nav.loans', icon: '₹' },
+  { to: '/repayments', label: 'nav.repayments', icon: '⇅' },
+  { to: '/collections/today', label: 'nav.todayCollection', icon: '◷' },
+  { to: '/action-required', label: 'nav.actionRequired', icon: '!' },
+  { to: '/reports', label: 'nav.reports', icon: '▤' },
+  { to: '/company', label: 'nav.company', icon: '🏢', adminOnly: true },
+  { to: '/settings', label: 'nav.settings', icon: '⚙', adminOnly: true },
 ];
 
 export function Layout() {
-  const { data: actions } = useApi(() => api.getActionRequired(), []);
-  const { data: company } = useApi(() => api.getCompany(), []);
+  const { pathname } = useLocation();
+  // Refresh the Action Required badge on navigation and after any change.
+  const { data: actions, reload: reloadActions } = useApi(() => api.getActionRequired(), [pathname]);
+  const { data: company, reload: reloadCompany } = useApi(() => api.getCompany(), []);
   const actionCount = actions?.total ?? 0;
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { lang, setLang, t } = useI18n();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    window.addEventListener(DATA_CHANGED_EVENT, reloadActions);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, reloadActions);
+  }, [reloadActions]);
+
+  // CompanyProfilePage dispatches this after a save or logo upload.
+  useEffect(() => {
+    window.addEventListener('company:updated', reloadCompany);
+    return () => window.removeEventListener('company:updated', reloadCompany);
+  }, [reloadCompany]);
 
   async function onLogout() {
     await logout();
@@ -51,9 +68,9 @@ export function Layout() {
             </span>
             <div>
               <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
-                {company?.name ?? 'Loan Manager'}
+                {company?.name ?? t('login.title')}
               </p>
-              <p className="text-xs text-slate-400 dark:text-slate-500">Lending operations</p>
+              <p className="text-xs text-slate-400 dark:text-slate-500">{t('layout.tagline')}</p>
             </div>
           </div>
         </div>
@@ -73,7 +90,7 @@ export function Layout() {
             >
               <span className="flex items-center gap-2.5">
                 <span className="w-4 text-center text-slate-400 dark:text-slate-500">{item.icon}</span>
-                {item.label}
+                {t(item.label)}
               </span>
               {item.to === '/action-required' && actionCount > 0 && (
                 <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
@@ -92,23 +109,34 @@ export function Layout() {
               <p className="font-medium text-slate-600 group-hover:text-slate-900 dark:text-slate-300 dark:group-hover:text-white">
                 {user?.name}
               </p>
-              <p>{user?.role === 'ADMIN' ? 'Administrator' : 'Collection Agent'}</p>
+              <p>{user?.role === 'ADMIN' ? t('layout.administrator') : t('layout.agent')}</p>
             </NavLink>
             <button
               onClick={onLogout}
               className="rounded-lg px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100"
             >
-              Log out
+              {t('layout.logout')}
             </button>
           </div>
-          <div className="flex items-center justify-between">
-            <span>INR · en-IN</span>
+          <div className="flex items-center justify-between gap-2">
+            <select
+              value={lang}
+              onChange={(e) => setLang(e.target.value as Lang)}
+              aria-label={t('layout.language')}
+              className="rounded-lg border-0 bg-transparent py-1 pl-1 pr-6 text-xs font-medium text-slate-500 hover:bg-slate-100 focus:ring-0 dark:text-slate-400 dark:hover:bg-slate-700"
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
             <button
               onClick={toggleTheme}
               className="inline-flex items-center gap-1 rounded-lg px-2 py-1 font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-100"
-              aria-label="Toggle theme"
+              aria-label={t('layout.toggleTheme')}
             >
-              {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+              {theme === 'dark' ? t('layout.lightTheme') : t('layout.darkTheme')}
             </button>
           </div>
         </div>

@@ -19,7 +19,8 @@ import { Button } from '../components/ui/Button';
 import { ErrorState, LoadingState } from '../components/ui/Feedback';
 import { useApi } from '../hooks/useApi';
 import { api } from '../lib/api';
-import { formatCompactCurrency, formatCurrency, FREQUENCY_LABEL } from '../lib/format';
+import { formatCompactCurrency, formatCurrency } from '../lib/format';
+import { useI18n } from '../i18n/I18nContext';
 import type { LoanFrequency } from '../lib/types';
 
 const FREQ_COLORS: Record<LoanFrequency, string> = {
@@ -30,22 +31,23 @@ const FREQ_COLORS: Record<LoanFrequency, string> = {
 
 export function DashboardPage() {
   const { data, loading, error, reload } = useApi(() => api.getDashboard(), []);
+  const { lang, t } = useI18n();
 
   if (loading) return <LoadingState />;
-  if (error || !data) return <ErrorState message={error ?? 'No data'} onRetry={reload} />;
+  if (error || !data) return <ErrorState message={error ?? t('common.noData')} onRetry={reload} />;
 
   const { kpis, collections, portfolio, trend, actionRequiredCount, topRisk } = data;
 
   const portfolioData = (Object.keys(portfolio) as LoanFrequency[]).map((f) => ({
     frequency: f,
-    label: FREQUENCY_LABEL[f],
+    label: t(`freq.${f}`),
     outstanding: portfolio[f].outstanding,
     count: portfolio[f].count,
   }));
 
   const trendData = trend.map((t) => ({
     ...t,
-    label: new Date(`${t.month}-01T00:00:00Z`).toLocaleDateString('en-IN', {
+    label: new Date(`${t.month}-01T00:00:00Z`).toLocaleDateString(lang === 'ta' ? 'ta-IN' : 'en-IN', {
       month: 'short',
       timeZone: 'UTC',
     }),
@@ -54,11 +56,11 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        subtitle="Portfolio health and collection performance at a glance."
+        title={t('dashboard.title')}
+        subtitle={t('dashboard.subtitle')}
         actions={
           <Link to="/loans/new">
-            <Button>+ New Loan</Button>
+            <Button>{t('common.newLoan')}</Button>
           </Link>
         }
       />
@@ -71,56 +73,62 @@ export function DashboardPage() {
                 {actionRequiredCount}
               </span>
               <div>
-                <p className="text-sm font-semibold text-rose-800 dark:text-rose-300">Action required</p>
+                <p className="text-sm font-semibold text-rose-800 dark:text-rose-300">{t('dashboard.actionRequired')}</p>
                 <p className="text-xs text-rose-600 dark:text-rose-400">
-                  Overdue installments past grace and loans eligible to be defaulted.
+                  {t('dashboard.actionRequiredHint')}
                 </p>
               </div>
             </div>
-            <span className="text-sm font-medium text-rose-700 dark:text-rose-400">Review →</span>
+            <span className="text-sm font-medium text-rose-700 dark:text-rose-400">{t('dashboard.review')}</span>
           </div>
         </Link>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Total Disbursed" value={formatCurrency(kpis.totalDisbursed)} />
-        <StatCard label="Outstanding" value={formatCurrency(kpis.outstanding)} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <StatCard label={t('dashboard.totalDisbursed')} value={formatCurrency(kpis.totalDisbursed)} />
+        <StatCard label={t('dashboard.outstanding')} value={formatCurrency(kpis.outstanding)} />
         <StatCard
-          label="Interest Earned"
+          label={t('dashboard.interestEarned')}
           value={formatCurrency(kpis.interestEarned)}
           tone="positive"
         />
         <StatCard
-          label="Overdue"
+          label={t('dashboard.overdue')}
           value={formatCurrency(kpis.overdueAmount)}
           tone={kpis.overdueAmount > 0 ? 'danger' : 'default'}
+        />
+        <StatCard
+          label={t('dashboard.defaultedBalance')}
+          value={formatCurrency(kpis.defaultedBalance)}
+          hint={t('dashboard.defaultedBalanceHint')}
+          tone={kpis.defaultedBalance > 0 ? 'danger' : 'default'}
         />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Active Loans" value={kpis.activeLoans} />
-        <StatCard label="Closed Loans" value={kpis.closedLoans} />
+        <StatCard label={t('dashboard.activeLoans')} value={kpis.activeLoans} />
+        <StatCard label={t('dashboard.closedLoans')} value={kpis.closedLoans} />
         <StatCard
-          label="Defaulted Loans"
+          label={t('dashboard.defaultedLoans')}
           value={kpis.defaultedLoans}
           tone={kpis.defaultedLoans > 0 ? 'danger' : 'default'}
         />
         <StatCard
-          label="Collection Efficiency"
+          label={t('dashboard.collectionEfficiency')}
           value={`${kpis.collectionEfficiency}%`}
           tone={kpis.collectionEfficiency >= 90 ? 'positive' : 'warning'}
         />
       </div>
 
       <div className="mt-6 grid grid-cols-3 gap-4">
-        <StatCard label="Collected Today" value={formatCurrency(collections.today)} />
-        <StatCard label="Collected This Week" value={formatCurrency(collections.week)} />
-        <StatCard label="Collected This Month" value={formatCurrency(collections.month)} />
+        <StatCard label={t('dashboard.collectedToday')} value={formatCurrency(collections.today)} />
+        <StatCard label={t('dashboard.collectedWeek')} value={formatCurrency(collections.week)} />
+        <StatCard label={t('dashboard.collectedMonth')} value={formatCurrency(collections.month)} />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Revenue" subtitle="Interest earned · last 6 months" />
+          <CardHeader title={t('dashboard.revenue')} subtitle={t('dashboard.revenueSubtitle')} />
           <CardBody>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -138,7 +146,7 @@ export function DashboardPage() {
                   <Line
                     type="monotone"
                     dataKey="revenue"
-                    name="Revenue (interest earned)"
+                    name={t('dashboard.revenueSeries')}
                     stroke="#10b981"
                     strokeWidth={2}
                     dot={false}
@@ -150,7 +158,7 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Portfolio by Type" subtitle="Outstanding balance" />
+          <CardHeader title={t('dashboard.portfolioByType')} subtitle={t('dashboard.portfolioByTypeSubtitle')} />
           <CardBody>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -164,7 +172,7 @@ export function DashboardPage() {
                     width={70}
                   />
                   <Tooltip formatter={(v) => formatCurrency(v as number)} />
-                  <Bar dataKey="outstanding" name="Outstanding" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="outstanding" name={t('dashboard.outstanding')} radius={[4, 4, 0, 0]}>
                     {portfolioData.map((d) => (
                       <Cell key={d.frequency} fill={FREQ_COLORS[d.frequency]} />
                     ))}
@@ -179,18 +187,18 @@ export function DashboardPage() {
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader
-            title="Highest-risk Customers"
-            subtitle="Lowest repayment reliability"
+            title={t('dashboard.highestRisk')}
+            subtitle={t('dashboard.highestRiskSubtitle')}
             action={
               <Link to="/customers" className="text-xs font-medium text-indigo-600">
-                View all
+                {t('common.viewAll')}
               </Link>
             }
           />
           <CardBody className="space-y-2">
             {topRisk.length === 0 && (
               <p className="py-6 text-center text-sm text-slate-400">
-                No repayment history yet.
+                {t('dashboard.noHistory')}
               </p>
             )}
             {topRisk.map((c) => (
@@ -210,7 +218,7 @@ export function DashboardPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Portfolio Mix" subtitle="Loans by repayment frequency" />
+          <CardHeader title={t('dashboard.portfolioMix')} subtitle={t('dashboard.portfolioMixSubtitle')} />
           <CardBody className="space-y-3">
             {portfolioData.map((d) => (
               <div key={d.frequency} className="flex items-center justify-between text-sm">
@@ -222,12 +230,12 @@ export function DashboardPage() {
                   {d.label}
                 </span>
                 <span className="text-slate-500">
-                  {d.count} loans · {formatCurrency(d.outstanding)}
+                  {t('dashboard.loansCount', { count: d.count })} · {formatCurrency(d.outstanding)}
                 </span>
               </div>
             ))}
             <div className="border-t border-slate-100 pt-3 text-sm text-slate-500 dark:border-slate-700">
-              {kpis.totalCustomers} customers total
+              {t('dashboard.customersTotal', { count: kpis.totalCustomers })}
             </div>
           </CardBody>
         </Card>

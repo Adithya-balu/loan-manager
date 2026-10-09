@@ -16,7 +16,7 @@
     "dev:client": "npm run dev --workspace client",
     "build": "npm run build --workspace shared && npm run build --workspace server && npm run build --workspace client",
     "vercel-build": "npm run generate --workspace server && npm run deploy --workspace server && npm run build --workspace shared && npm run build --workspace client",
-    "test": "npm run test --workspace shared",
+    "test": "npm run build --workspace shared && npm run test --workspaces --if-present",
     "db:migrate": "npm run migrate --workspace server",
     "db:seed": "npm run seed --workspace server",
     "db:reset": "npm run reset --workspace server"

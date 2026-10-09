@@ -42,9 +42,12 @@ router.get(
     let overdue = 0;
     for (const loan of loans) {
       const grace = effectiveGraceDays(loan, settings);
+      // Payments are allocated oldest-first, so only the earliest open installment is collectable.
+      let firstOpenSequence: number | null = null;
       for (const inst of loan.schedule) {
         const e = enrichInstallment(inst, grace, ref);
         if (e.remaining <= 0.005 || e.derivedStatus === 'DEFAULTED') continue;
+        firstOpenSequence ??= inst.sequence;
         const dueISO = toISODate(dateOnly(inst.dueDate));
         const isToday = dueISO === todayISO;
         const isOverdue = e.derivedStatus === 'OVERDUE';
@@ -66,6 +69,7 @@ router.get(
           daysPastDue: e.daysPastDue,
           frequency: loan.frequency,
           actionRequired: e.actionRequired,
+          blockedBySequence: firstOpenSequence < inst.sequence ? firstOpenSequence : null,
         });
       }
     }
@@ -99,8 +103,11 @@ router.get(
 
     for (const loan of loans) {
       const grace = effectiveGraceDays(loan, settings);
+      // Payments are allocated oldest-first, so only the earliest open installment is collectable.
+      let firstOpenSequence: number | null = null;
       for (const inst of loan.schedule) {
         const e = enrichInstallment(inst, grace, ref);
+        if (e.remaining > 0.005 && e.derivedStatus !== 'DEFAULTED') firstOpenSequence ??= inst.sequence;
         if (e.actionRequired) {
           installmentActions.push({
             installmentId: inst.id,
@@ -117,6 +124,8 @@ router.get(
             graceDays: grace,
             kind: inst.paidAmount > 0 ? 'PARTIAL' : 'DEFAULT',
             frequency: loan.frequency,
+            blockedBySequence:
+              firstOpenSequence !== null && firstOpenSequence < inst.sequence ? firstOpenSequence : null,
           });
         }
       }

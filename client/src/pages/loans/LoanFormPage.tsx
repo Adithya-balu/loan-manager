@@ -11,7 +11,8 @@ import { useToast } from '../../components/ui/Toast';
 import { CustomerQuickCreate } from '../../components/CustomerQuickCreate';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
-import { FREQUENCY_LABEL, formatCurrency, formatDate, todayISO, toDateInput } from '../../lib/format';
+import { formatCurrency, formatDate, todayISO, toDateInput } from '../../lib/format';
+import { useI18n } from '../../i18n/I18nContext';
 import type {
   CustomerListItem,
   InterestMethod,
@@ -62,6 +63,7 @@ export function LoanFormPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { t } = useI18n();
 
   const { data: customers, reload: reloadCustomers } = useApi(() => api.listCustomers(), []);
   const [form, setForm] = useState<FormState>(initialForm(searchParams.get('customerId') ?? ''));
@@ -69,6 +71,7 @@ export function LoanFormPage() {
   const [saving, setSaving] = useState(false);
   const [locked, setLocked] = useState(false);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
+  const [showGuarantor, setShowGuarantor] = useState(false);
   const [preview, setPreview] = useState<ScheduleSummary | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -98,9 +101,17 @@ export function LoanFormPage() {
           graceDaysOverride: loan.graceDaysOverride?.toString() ?? '',
           defaultThresholdDaysOverride: loan.defaultThresholdDaysOverride?.toString() ?? '',
         });
+        if (
+          loan.guarantorName ||
+          loan.guarantorMobile ||
+          loan.guarantorRelation ||
+          loan.guarantorAddress
+        ) {
+          setShowGuarantor(true);
+        }
         if (loan.payments.length > 0) setLocked(true);
       })
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to load'))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : t('common.failedToLoad')))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
@@ -155,7 +166,7 @@ export function LoanFormPage() {
         .previewSchedule(previewInputs.body)
         .then(setPreview)
         .catch((e: unknown) =>
-          setPreviewError(e instanceof Error ? e.message : 'Preview failed'),
+          setPreviewError(e instanceof Error ? e.message : t('loanForm.previewFailed')),
         )
         .finally(() => setPreviewLoading(false));
     }, 400);
@@ -171,15 +182,20 @@ export function LoanFormPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (locked) {
-      toast.error('This loan already has payments and cannot be edited.');
+      toast.error(t('loanForm.lockedToast'));
       return;
     }
     if (!form.customerId) {
-      toast.error('Select a customer');
+      toast.error(t('loanForm.selectCustomerToast'));
       return;
     }
     if (!previewInputs.valid) {
-      toast.error('Fill in valid loan terms');
+      toast.error(t('loanForm.invalidTermsToast'));
+      return;
+    }
+    const overrides = [form.graceDaysOverride, form.defaultThresholdDaysOverride].map((v) => v.trim());
+    if (overrides.some((v) => v !== '' && !Number.isInteger(Number(v)))) {
+      toast.error(t('loanForm.wholeDays'));
       return;
     }
     setSaving(true);
@@ -207,15 +223,15 @@ export function LoanFormPage() {
       };
       if (isEdit && id) {
         await api.updateLoan(id, payload);
-        toast.success('Loan updated');
+        toast.success(t('loanForm.updated'));
         navigate(`/loans/${id}`);
       } else {
         const created = await api.createLoan(payload);
-        toast.success('Loan created');
+        toast.success(t('loanForm.created'));
         navigate(`/loans/${created.id}`);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Save failed');
+      toast.error(err instanceof Error ? err.message : t('common.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -225,27 +241,26 @@ export function LoanFormPage() {
 
   return (
     <>
-      <PageHeader title={isEdit ? 'Edit Loan' : 'New Loan'} />
+      <PageHeader title={isEdit ? t('loanForm.editTitle') : t('loanForm.newTitle')} />
 
       {locked && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          Payments have already been recorded on this loan, so its terms are locked. Record
-          repayments from the loan detail page instead.
+          {t('loanForm.locked')}
         </div>
       )}
 
       <form onSubmit={onSubmit} className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Loan Terms" />
+          <CardHeader title={t('loanForm.terms')} />
           <CardBody className="space-y-4">
-            <Field label="Customer" required>
+            <Field label={t('loanForm.customer')} required>
               <div className="flex items-center gap-2">
                 <Select
                   value={form.customerId}
                   onChange={(e) => set('customerId', e.target.value)}
                   disabled={locked}
                 >
-                  <option value="">Select a customer…</option>
+                  <option value="">{t('loanForm.selectCustomer')}</option>
                   {customers?.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} ({c.customerNumber})
@@ -259,19 +274,19 @@ export function LoanFormPage() {
                   disabled={locked}
                   onClick={() => setQuickCreateOpen(true)}
                 >
-                  + New
+                  {t('loanForm.newCustomer')}
                 </Button>
               </div>
             </Field>
             {selectedCustomer && (
               <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-900/50">
-                <span className="text-slate-500 dark:text-slate-400">Customer risk</span>
+                <span className="text-slate-500 dark:text-slate-400">{t('loanForm.customerRisk')}</span>
                 <RiskBadge risk={selectedCustomer.risk} />
               </div>
             )}
 
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Principal" required>
+              <Field label={t('loanForm.principal')} required>
                 <Input
                   type="number"
                   min="0"
@@ -281,7 +296,7 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
-              <Field label="Annual Rate %" required>
+              <Field label={t('loanForm.annualRate')} required>
                 <Input
                   type="number"
                   min="0"
@@ -291,7 +306,7 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
-              <Field label="Repayment Frequency" required>
+              <Field label={t('loanForm.frequency')} required>
                 <Select
                   value={form.frequency}
                   onChange={(e) => set('frequency', e.target.value as LoanFrequency)}
@@ -299,12 +314,12 @@ export function LoanFormPage() {
                 >
                   {LOAN_FREQUENCIES.map((f) => (
                     <option key={f} value={f}>
-                      {FREQUENCY_LABEL[f]}
+                      {t(`freq.${f}`)}
                     </option>
                   ))}
                 </Select>
               </Field>
-              <Field label="Interest Method" required>
+              <Field label={t('loanForm.interestMethod')} required>
                 <Select
                   value={form.interestMethod}
                   onChange={(e) => set('interestMethod', e.target.value as InterestMethod)}
@@ -312,12 +327,12 @@ export function LoanFormPage() {
                 >
                   {INTEREST_METHODS.map((m) => (
                     <option key={m} value={m}>
-                      {m === 'FLAT' ? 'Flat Rate' : 'Reducing Balance'}
+                      {t(`method.${m}`)}
                     </option>
                   ))}
                 </Select>
               </Field>
-              <Field label="No. of Installments" required>
+              <Field label={t('loanForm.installments')} required>
                 <Input
                   type="number"
                   min="1"
@@ -327,7 +342,7 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
-              <Field label="Disbursement Date" required>
+              <Field label={t('loanForm.disbursementDate')} required>
                 <Input
                   type="date"
                   value={form.disbursementDate}
@@ -335,7 +350,7 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
-              <Field label="Repayment Start Date" required>
+              <Field label={t('loanForm.repaymentStartDate')} required>
                 <Input
                   type="date"
                   value={form.repaymentStartDate}
@@ -343,7 +358,7 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
-              <Field label="Disbursement Mode" hint="How the principal was paid out">
+              <Field label={t('loanForm.disbursementMode')} hint={t('loanForm.disbursementModeHint')}>
                 <Select
                   value={form.disbursementMode}
                   onChange={(e) => set('disbursementMode', e.target.value as PaymentMode)}
@@ -359,45 +374,53 @@ export function LoanFormPage() {
             </div>
 
             <div className="border-t border-slate-100 pt-4 dark:border-slate-700">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Guarantor (optional)
-              </p>
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="Guarantor Name">
-                  <Input
-                    value={form.guarantorName}
-                    onChange={(e) => set('guarantorName', e.target.value)}
-                    disabled={locked}
-                  />
-                </Field>
-                <Field label="Guarantor Mobile">
-                  <Input
-                    inputMode="numeric"
-                    value={form.guarantorMobile}
-                    onChange={(e) => set('guarantorMobile', e.target.value.replace(/\D/g, ''))}
-                    disabled={locked}
-                  />
-                </Field>
-                <Field label="Relation">
-                  <Input
-                    value={form.guarantorRelation}
-                    onChange={(e) => set('guarantorRelation', e.target.value)}
-                    placeholder="e.g. Brother, Friend"
-                    disabled={locked}
-                  />
-                </Field>
-                <Field label="Guarantor Address">
-                  <Input
-                    value={form.guarantorAddress}
-                    onChange={(e) => set('guarantorAddress', e.target.value)}
-                    disabled={locked}
-                  />
-                </Field>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowGuarantor((v) => !v)}
+                className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                aria-expanded={showGuarantor}
+              >
+                <span className="w-3">{showGuarantor ? '▾' : '▸'}</span>
+                {showGuarantor ? t('loanForm.guarantorOptional') : t('loanForm.addGuarantor')}
+              </button>
+              {showGuarantor && (
+                <div className="mt-3 grid grid-cols-2 gap-4">
+                  <Field label={t('loanForm.guarantorName')}>
+                    <Input
+                      value={form.guarantorName}
+                      onChange={(e) => set('guarantorName', e.target.value)}
+                      disabled={locked}
+                    />
+                  </Field>
+                  <Field label={t('loanForm.guarantorMobile')}>
+                    <Input
+                      inputMode="numeric"
+                      value={form.guarantorMobile}
+                      onChange={(e) => set('guarantorMobile', e.target.value.replace(/\D/g, ''))}
+                      disabled={locked}
+                    />
+                  </Field>
+                  <Field label={t('loanForm.relation')}>
+                    <Input
+                      value={form.guarantorRelation}
+                      onChange={(e) => set('guarantorRelation', e.target.value)}
+                      placeholder={t('loanForm.relationPlaceholder')}
+                      disabled={locked}
+                    />
+                  </Field>
+                  <Field label={t('loanForm.guarantorAddress')}>
+                    <Input
+                      value={form.guarantorAddress}
+                      onChange={(e) => set('guarantorAddress', e.target.value)}
+                      disabled={locked}
+                    />
+                  </Field>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4 border-t border-slate-100 pt-4 dark:border-slate-700">
-              <Field label="Grace Days Override" hint="Blank uses the loan-type default">
+              <Field label={t('loanForm.graceOverride')} hint={t('loanForm.graceOverrideHint')}>
                 <Input
                   type="number"
                   min="0"
@@ -407,7 +430,7 @@ export function LoanFormPage() {
                   disabled={locked}
                 />
               </Field>
-              <Field label="Default Threshold Override" hint="Days without payment before default">
+              <Field label={t('loanForm.defaultOverride')} hint={t('loanForm.defaultOverrideHint')}>
                 <Input
                   type="number"
                   min="0"
@@ -421,10 +444,10 @@ export function LoanFormPage() {
 
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => navigate(-1)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" disabled={saving || locked}>
-                {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Loan'}
+                {saving ? t('common.saving') : isEdit ? t('loanForm.saveChanges') : t('loanForm.create')}
               </Button>
             </div>
           </CardBody>
@@ -432,35 +455,35 @@ export function LoanFormPage() {
 
         <Card>
           <CardHeader
-            title="Repayment Schedule"
-            subtitle="Live preview updates as you change terms"
+            title={t('loanForm.schedule')}
+            subtitle={t('loanForm.scheduleSubtitle')}
             action={previewLoading ? <Spinner /> : undefined}
           />
           <CardBody>
             {previewError && <p className="text-sm text-rose-600">{previewError}</p>}
             {!preview && !previewError && (
               <p className="py-10 text-center text-sm text-slate-400">
-                Enter principal, rate, installments and a start date to preview the schedule.
+                {t('loanForm.previewEmpty')}
               </p>
             )}
             {preview && (
               <>
                 <div className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                  <SummaryStat label="Per Installment" value={formatCurrency(preview.installmentAmount)} />
-                  <SummaryStat label="Total Principal" value={formatCurrency(preview.totalPrincipal)} />
-                  <SummaryStat label="Total Interest" value={formatCurrency(preview.totalInterest)} />
-                  <SummaryStat label="Total Payable" value={formatCurrency(preview.totalPayable)} />
+                  <SummaryStat label={t('loanForm.perInstallment')} value={formatCurrency(preview.installmentAmount)} />
+                  <SummaryStat label={t('loanForm.totalPrincipal')} value={formatCurrency(preview.totalPrincipal)} />
+                  <SummaryStat label={t('loanForm.totalInterest')} value={formatCurrency(preview.totalInterest)} />
+                  <SummaryStat label={t('loanForm.totalPayable')} value={formatCurrency(preview.totalPayable)} />
                 </div>
                 <div className="max-h-96 overflow-y-auto rounded-lg border border-slate-100 dark:border-slate-700">
                   <table className="min-w-full text-xs">
                     <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900/80">
                       <tr className="text-slate-500 dark:text-slate-400">
                         <th className="px-2 py-2 text-left font-semibold">#</th>
-                        <th className="px-2 py-2 text-left font-semibold">Due Date</th>
-                        <th className="px-2 py-2 text-right font-semibold">Principal</th>
-                        <th className="px-2 py-2 text-right font-semibold">Interest</th>
-                        <th className="px-2 py-2 text-right font-semibold">Amount</th>
-                        <th className="px-2 py-2 text-right font-semibold">Balance</th>
+                        <th className="px-2 py-2 text-left font-semibold">{t('loanForm.colDueDate')}</th>
+                        <th className="px-2 py-2 text-right font-semibold">{t('loanForm.colPrincipal')}</th>
+                        <th className="px-2 py-2 text-right font-semibold">{t('loanForm.colInterest')}</th>
+                        <th className="px-2 py-2 text-right font-semibold">{t('loanForm.colAmount')}</th>
+                        <th className="px-2 py-2 text-right font-semibold">{t('loanForm.colBalance')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-700">

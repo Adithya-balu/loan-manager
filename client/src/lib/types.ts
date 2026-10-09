@@ -49,6 +49,9 @@ export interface AuthUser {
 export interface LoanRollup {
   totalPayable: number;
   totalPaid: number;
+  interestCollected: number;
+  principalCollected: number;
+  outstandingPrincipal: number;
   outstanding: number;
   totalPrincipal: number;
   totalInterest: number;
@@ -137,6 +140,8 @@ export interface CollectionItem {
   daysPastDue: number;
   frequency: LoanFrequency;
   actionRequired: boolean;
+  /** Sequence of an earlier open installment that must be collected first, if any. */
+  blockedBySequence: number | null;
 }
 
 export interface TodayCollectionResponse {
@@ -160,6 +165,8 @@ export interface InstallmentAction {
   graceDays: number;
   kind: 'PARTIAL' | 'DEFAULT';
   frequency: LoanFrequency;
+  /** Sequence of an earlier open installment that must be collected first, if any. */
+  blockedBySequence: number | null;
 }
 
 export interface LoanAction {
@@ -185,6 +192,8 @@ export interface DashboardResponse {
     outstanding: number;
     interestEarned: number;
     overdueAmount: number;
+    /** Outstanding on DEFAULTED loans — excluded from outstanding/overdue. */
+    defaultedBalance: number;
     activeLoans: number;
     closedLoans: number;
     defaultedLoans: number;

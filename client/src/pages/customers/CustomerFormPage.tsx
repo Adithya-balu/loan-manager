@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { DUPLICATE_CUSTOMER_NUMBER } from '@loan/shared';
 import { PageHeader } from '../../components/PageHeader';
 import { Card, CardBody } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -103,7 +104,11 @@ export function CustomerFormPage() {
       toast.success(isEdit ? 'Customer updated' : 'Customer created');
       navigate(`/customers/${saved.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Save failed');
+      const message = err instanceof Error ? err.message : 'Save failed';
+      if (message === DUPLICATE_CUSTOMER_NUMBER) {
+        setErrors((prev) => ({ ...prev, customerNumber: message }));
+      }
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -156,6 +161,7 @@ export function CustomerFormPage() {
               </Field>
               <Field
                 label="Customer Number"
+                error={errors.customerNumber}
                 hint={isEdit ? undefined : 'Leave blank to auto-generate (e.g. C0007)'}
               >
                 <Input

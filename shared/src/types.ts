@@ -4,6 +4,9 @@ export type LoanFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 export type InterestMethod = 'FLAT' | 'REDUCING';
 export type LoanStatus = 'ACTIVE' | 'CLOSED' | 'DEFAULTED';
 
+/** SETTLEMENT = the single payment recorded when a loan is pre-closed. */
+export type PaymentKind = 'REGULAR' | 'SETTLEMENT';
+
 /**
  * Lifecycle of a single scheduled installment.
  * - SCHEDULED: future installment, not yet due.
@@ -28,6 +31,10 @@ export type RiskBand = 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
 export const LOAN_FREQUENCIES: LoanFrequency[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
 export const INTEREST_METHODS: InterestMethod[] = ['FLAT', 'REDUCING'];
 export const PAYMENT_MODES: PaymentMode[] = ['CASH', 'UPI', 'BANK', 'CHEQUE', 'OTHER'];
+
+/** Error messages the API returns for unique-constraint violations (shared so forms can match them). */
+export const DUPLICATE_CUSTOMER_NUMBER = 'Customer number already exists';
+export const DUPLICATE_USER_EMAIL = 'A user with that email already exists';
 
 /** System-wide, per-loan-type configuration (overridable per loan). */
 export interface LoanTypeConfig {
@@ -130,6 +137,11 @@ export interface Installment {
   status: InstallmentStatus;
   paidDate?: string | null;
   capitalizedAmount: number;
+  /** Interest written off on early settlement (included in paidAmount, never received). */
+  waivedAmount: number;
+  /** paidAmount split, interest first: interestPaid + principalPaid + waivedAmount = paidAmount. */
+  interestPaid: number;
+  principalPaid: number;
 }
 
 export interface Payment {
@@ -141,6 +153,11 @@ export interface Payment {
   date: string;
   mode: PaymentMode;
   note?: string | null;
+  kind: PaymentKind;
+  settlementInterest?: number | null;
+  /** How the amount was applied; interest is collected before principal. */
+  interestAmount: number;
+  principalAmount: number;
   createdAt: string;
 }
 

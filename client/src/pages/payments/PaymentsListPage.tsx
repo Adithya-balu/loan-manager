@@ -37,6 +37,11 @@ export function PaymentsListPage() {
   }, [data, query]);
 
   const total = useMemo(() => filtered.reduce((a, p) => a + p.amount, 0), [filtered]);
+  // Settled loans are frozen; only their settlement payment can be removed (undoing it).
+  const settledLoanIds = useMemo(
+    () => new Set((data ?? []).filter((p) => p.kind === 'SETTLEMENT').map((p) => p.loanId)),
+    [data],
+  );
 
   function openEdit(p: PaymentListItem) {
     setEditingPayment({
@@ -119,17 +124,29 @@ export function PaymentsListPage() {
                     <div className="text-xs text-slate-400">{p.customer.customerNumber}</div>
                   </TD>
                   <TD>{FREQUENCY_LABEL[p.loan.frequency]}</TD>
-                  <TD align="center">{p.installment ? `#${p.installment.sequence}` : '—'}</TD>
+                  <TD align="center">
+                    {p.kind === 'SETTLEMENT' ? 'Settlement' : p.installment ? `#${p.installment.sequence}` : '—'}
+                  </TD>
                   <TD>{p.mode}</TD>
                   <TD align="right">{formatCurrency(p.amount)}</TD>
                   <TD align="right">
                     <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" variant="secondary" onClick={() => openEdit(p)}>
-                        Edit
-                      </Button>
-                      <Button size="sm" variant="danger" onClick={() => setDeleteTarget(p)}>
-                        Delete
-                      </Button>
+                      {p.kind === 'SETTLEMENT' ? (
+                        <Button size="sm" variant="danger" onClick={() => setDeleteTarget(p)}>
+                          Undo settlement
+                        </Button>
+                      ) : settledLoanIds.has(p.loanId) ? (
+                        <span className="text-xs text-slate-400">Locked — loan was settled</span>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => openEdit(p)}>
+                            Edit
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => setDeleteTarget(p)}>
+                            Delete
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </TD>
                 </TR>
@@ -151,12 +168,17 @@ export function PaymentsListPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete payment?"
+        title={deleteTarget?.kind === 'SETTLEMENT' ? 'Undo settlement?' : 'Delete payment?'}
         danger
         busy={deleteBusy}
-        confirmLabel="Delete"
+        confirmLabel={deleteTarget?.kind === 'SETTLEMENT' ? 'Undo settlement' : 'Delete'}
         message={
-          deleteTarget ? (
+          deleteTarget?.kind === 'SETTLEMENT' ? (
+            <>
+              This deletes the settlement payment of <strong>{formatCurrency(deleteTarget.amount)}</strong>{' '}
+              and reopens the loan with its original schedule. You can settle again afterwards.
+            </>
+          ) : deleteTarget ? (
             <>
               This will remove the payment of <strong>{formatCurrency(deleteTarget.amount)}</strong>{' '}
               dated {formatDate(deleteTarget.date)} and recompute the installment schedule. This

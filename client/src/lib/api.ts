@@ -32,6 +32,9 @@ const BASE = '/api';
 /** Fired whenever a request comes back 401 outside of the login/me flow, so the app can force a re-login. */
 export const AUTH_EXPIRED_EVENT = 'auth:expired';
 
+/** Fired after any successful change (POST/PUT/DELETE outside auth) so summaries like the sidebar badge can refresh. */
+export const DATA_CHANGED_EVENT = 'data:changed';
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -55,10 +58,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       // non-JSON error body; keep the default message.
     }
-    if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
+    // A 401 elsewhere means the session expired. Login/me report it themselves, and
+    // change-password's "wrong current password" must not log the user out.
+    const sessionCheckExempt = ['/auth/login', '/auth/me', '/auth/change-password'];
+    if (res.status === 401 && !sessionCheckExempt.includes(path)) {
       window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     }
     throw new ApiError(message, res.status);
+  }
+  const method = (options.method ?? 'GET').toUpperCase();
+  if (method !== 'GET' && !path.startsWith('/auth/')) {
+    window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -135,7 +145,8 @@ export const api = {
   updateLoan: (id: string, data: LoanInput) => put<Loan>(`/loans/${id}`, data),
   deleteLoan: (id: string) => del(`/loans/${id}`),
   markLoanDefaulted: (id: string) => post<Loan>(`/loans/${id}/default`),
-  getSettlement: (id: string) => get<SettlementQuote>(`/loans/${id}/settlement`),
+  getSettlement: (id: string, date?: string) =>
+    get<SettlementQuote>(`/loans/${id}/settlement${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   settleLoan: (id: string, data: { date: string; mode?: PaymentInput['mode'] }) =>
     post<SettlementResult>(`/loans/${id}/settlement`, data),
   uploadLoanDocument: (id: string, file: File, label: string) => {

@@ -74,6 +74,24 @@ export function daysBetween(a: Date, b: Date): number {
 }
 
 /**
+ * Split `total` into `n` paise-exact parts whose running sums track
+ * total × k / n. Each part is within one paisa of total / n, none is negative,
+ * and they add up to exactly `total`. (Rounding one equal part and letting the
+ * last absorb the residual can push the last part negative on small daily
+ * loans, where n × ½ paisa is comparable to an installment.)
+ */
+function spreadEvenly(total: number, n: number): number[] {
+  const parts: number[] = [];
+  let previous = 0;
+  for (let k = 1; k <= n; k++) {
+    const cumulative = round2((total * k) / n);
+    parts.push(round2(cumulative - previous));
+    previous = cumulative;
+  }
+  return parts;
+}
+
+/**
  * Generate a full repayment schedule.
  *
  * FLAT:      Interest = P x R x T (T in years). Each installment carries an equal
@@ -81,72 +99,69 @@ export function daysBetween(a: Date, b: Date): number {
  * REDUCING:  Equal EMI computed on the per-period rate; interest accrues on the
  *            outstanding balance and the remainder reduces principal.
  *
- * Rounding is done to paise; the final installment absorbs any residual so the
- * totals reconcile exactly.
+ * Amounts are in paise. Equal slices are spread so each installment is within a
+ * paisa of the exact value and the totals reconcile exactly; the final
+ * installment clears any residual balance.
  */
 export function generateSchedule(params: ScheduleParams): ScheduleSummary {
   const { principal, annualRatePct, frequency, installments, method } = params;
   const n = Math.max(1, Math.floor(installments));
   const start = parseISODate(params.startDate);
   const rows: ScheduleRow[] = [];
+  const i = annualRatePct / 100 / periodsPerYear(frequency);
 
-  if (method === 'FLAT') {
+  if (method === 'FLAT' || i === 0) {
     const years = n / periodsPerYear(frequency);
-    const totalInterest = round2(principal * (annualRatePct / 100) * years);
-    const perPrincipal = round2(principal / n);
-    const perInterest = round2(totalInterest / n);
-    let principalRemaining = principal;
-    let interestRemaining = totalInterest;
+    const totalInterest = method === 'FLAT' ? round2(principal * (annualRatePct / 100) * years) : 0;
+    const principalParts = spreadEvenly(principal, n);
+    const interestParts = spreadEvenly(totalInterest, n);
+    let balance = round2(principal);
 
-    for (let i = 0; i < n; i++) {
-      const isLast = i === n - 1;
-      const p = isLast ? round2(principalRemaining) : perPrincipal;
-      const interest = isLast ? round2(interestRemaining) : perInterest;
-      const opening = round2(principalRemaining);
-      principalRemaining = round2(principalRemaining - p);
-      interestRemaining = round2(interestRemaining - interest);
+    for (let k = 0; k < n; k++) {
+      const opening = balance;
+      balance = round2(balance - principalParts[k]);
       rows.push({
-        sequence: i + 1,
-        dueDate: toISODate(dueDateFor(start, frequency, i)),
+        sequence: k + 1,
+        dueDate: toISODate(dueDateFor(start, frequency, k)),
         openingBalance: opening,
-        principalComponent: p,
-        interestComponent: interest,
-        amountDue: round2(p + interest),
-        closingBalance: round2(principalRemaining),
+        principalComponent: principalParts[k],
+        interestComponent: interestParts[k],
+        amountDue: round2(principalParts[k] + interestParts[k]),
+        closingBalance: balance,
       });
     }
     return {
       rows,
-      totalPrincipal: principal,
+      totalPrincipal: round2(principal),
       totalInterest,
       totalPayable: round2(principal + totalInterest),
-      installmentAmount: rows.length ? rows[0].amountDue : 0,
+      installmentAmount: rows[0].amountDue,
     };
   }
 
-  // REDUCING balance (EMI)
-  const i = annualRatePct / 100 / periodsPerYear(frequency);
-  let emi: number;
-  if (i === 0) {
-    emi = round2(principal / n);
-  } else {
-    const factor = Math.pow(1 + i, n);
-    emi = round2((principal * i * factor) / (factor - 1));
+  // REDUCING balance (EMI). Work out the exact (unrounded) amortization first,
+  // then round by running totals: payments follow the exact EMI and principal
+  // follows the exact repayment path, so every row is within a paisa of the
+  // true figures and rounding never accumulates — even on long, high-rate
+  // schedules where each row repays less than a paisa of principal.
+  const factor = Math.pow(1 + i, n);
+  const exactEmi = (principal * i * factor) / (factor - 1);
+  const amounts = spreadEvenly(exactEmi * n, n);
+  const cumulativePrincipal: number[] = [];
+  let exactBalance = principal;
+  for (let k = 0; k < n; k++) {
+    exactBalance -= exactEmi - exactBalance * i;
+    cumulativePrincipal.push(k === n - 1 ? round2(principal) : round2(principal - exactBalance));
   }
 
-  let balance = principal;
+  let balance = round2(principal);
   let totalInterest = 0;
   for (let k = 0; k < n; k++) {
-    const isLast = k === n - 1;
-    const opening = round2(balance);
-    const interest = round2(balance * i);
-    let principalComponent = round2(emi - interest);
-    let amountDue = emi;
-    if (isLast) {
-      // Final installment clears whatever is left, absorbing rounding drift.
-      principalComponent = round2(balance);
-      amountDue = round2(principalComponent + interest);
-    }
+    const opening = balance;
+    const principalComponent = round2(cumulativePrincipal[k] - (k === 0 ? 0 : cumulativePrincipal[k - 1]));
+    // Interest is the rest of the payment; on the last rows of a low-rate loan the
+    // exact interest can be under a paisa, so never let rounding make it negative.
+    const interest = Math.max(0, round2(amounts[k] - principalComponent));
     balance = round2(balance - principalComponent);
     totalInterest = round2(totalInterest + interest);
     rows.push({
@@ -155,17 +170,17 @@ export function generateSchedule(params: ScheduleParams): ScheduleSummary {
       openingBalance: opening,
       principalComponent,
       interestComponent: interest,
-      amountDue,
-      closingBalance: round2(balance),
+      amountDue: round2(principalComponent + interest),
+      closingBalance: balance,
     });
   }
 
   return {
     rows,
-    totalPrincipal: principal,
+    totalPrincipal: round2(principal),
     totalInterest,
     totalPayable: round2(principal + totalInterest),
-    installmentAmount: emi,
+    installmentAmount: round2(exactEmi),
   };
 }
 

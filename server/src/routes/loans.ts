@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import path from 'node:path';
-import fs from 'node:fs';
 import { z } from 'zod';
-import { generateSchedule } from '@loan/shared';
+import { generateSchedule, parseISODate } from '@loan/shared';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import {
@@ -16,7 +14,8 @@ import {
   settleLoan,
 } from '../lib/loanService.js';
 import { today } from '../lib/dates.js';
-import { UPLOADS_DIR, upload } from '../lib/upload.js';
+import { upload } from '../lib/upload.js';
+import { removeUpload, storeUpload } from '../lib/storage.js';
 
 const router = Router();
 
@@ -36,6 +35,9 @@ const loanSchema = z.object({
   guarantorAddress: z.string().optional().nullable(),
   graceDaysOverride: z.number().int().min(0).nullable().optional(),
   defaultThresholdDaysOverride: z.number().int().min(0).nullable().optional(),
+}).refine((l) => l.repaymentStartDate.slice(0, 10) >= l.disbursementDate.slice(0, 10), {
+  message: "Repayment start date can't be before the disbursement date",
+  path: ['repaymentStartDate'],
 });
 
 const previewSchema = z.object({
@@ -121,6 +123,7 @@ router.put(
       where: { id: req.params.id },
       include: { payments: true },
     });
+    if (existing.status !== 'ACTIVE') throw new Error('Only active loans can be edited');
     if (existing.payments.length > 0) {
       throw new Error('Cannot edit loan terms after payments have been recorded');
     }
@@ -185,21 +188,24 @@ router.post(
   }),
 );
 
-// Early-settlement (foreclosure) quote.
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
+
+// Early-settlement (foreclosure) quote, as of `?date=YYYY-MM-DD` (default: today).
 router.get(
   '/:id/settlement',
   asyncHandler(async (req, res) => {
+    const date = isoDate.optional().parse(req.query.date || undefined);
     const settings = await getSettingsMap();
     const loan = await prisma.loan.findUniqueOrThrow({
       where: { id: req.params.id },
       include: { schedule: { orderBy: { sequence: 'asc' } } },
     });
-    res.json(computeSettlement(loan, settings, today()));
+    res.json(computeSettlement(loan, settings, date ? parseISODate(date) : today()));
   }),
 );
 
 const settleSchema = z.object({
-  date: z.string().min(1),
+  date: isoDate,
   mode: z.enum(['CASH', 'UPI', 'BANK', 'CHEQUE', 'OTHER']).optional(),
 });
 
@@ -219,13 +225,15 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw new Error('No file uploaded');
+    const loan = await prisma.loan.findUniqueOrThrow({ where: { id: req.params.id } });
     const label = (req.body.label as string) || req.file.originalname;
+    const url = await storeUpload(req.file, `loans/${loan.id}`);
     const doc = await prisma.loanDocument.create({
       data: {
-        loanId: req.params.id,
+        loanId: loan.id,
         label,
         fileName: req.file.originalname,
-        url: `/uploads/${req.file.filename}`,
+        url,
         mimeType: req.file.mimetype,
       },
     });
@@ -238,9 +246,8 @@ router.delete(
   asyncHandler(async (req, res) => {
     const doc = await prisma.loanDocument.findUnique({ where: { id: req.params.docId } });
     if (doc) {
-      const filePath = path.join(UPLOADS_DIR, path.basename(doc.url));
-      fs.promises.unlink(filePath).catch(() => undefined);
       await prisma.loanDocument.delete({ where: { id: doc.id } });
+      await removeUpload(doc.url);
     }
     res.status(204).end();
   }),

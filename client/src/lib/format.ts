@@ -54,9 +54,18 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   });
 }
 
-/** Today's date as yyyy-mm-dd for date inputs. */
+/** A date as yyyy-mm-dd in the user's local calendar (not UTC). */
+export function toLocalISODate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Today's local date as yyyy-mm-dd for date inputs. Uses the local calendar so
+ * that just after midnight in India it isn't still "yesterday" in UTC.
+ */
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return toLocalISODate(new Date());
 }
 
 /** Convert any ISO datetime string to yyyy-mm-dd for a date input value. */
