@@ -87,9 +87,11 @@ npm run db:seed
 
 ```
 DATABASE_URL="postgresql://USER@localhost:5432/loan_manager?schema=public"
+DIRECT_URL="postgresql://USER@localhost:5432/loan_manager?schema=public"   # required by Prisma; same as DATABASE_URL locally
 PORT=4000
 CLIENT_ORIGIN="http://localhost:5173"
 JWT_SECRET="a long random string"
+# Optional: APP_TIMEZONE (default Asia/Kolkata), BLOB_READ_WRITE_TOKEN (store uploads in Vercel Blob)
 ```
 
 After seeding, log in with one of the demo accounts:
@@ -131,7 +133,7 @@ to open the client URL.
 | --- | --- |
 | `npm run dev` | Run server + client concurrently |
 | `npm run build` | Build shared, server, and client |
-| `npm test` | Run the `@loan/shared` finance unit tests (Vitest) |
+| `npm test` | Run all tests: shared finance unit tests, server integration tests (against `<db>_test`, created and migrated automatically), client component tests |
 | `npm run db:migrate` | `prisma migrate dev` (create + apply migrations) |
 | `npm run db:seed` | Seed demo data |
 | `npm run db:reset` | Reset the database and re-seed |

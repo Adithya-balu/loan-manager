@@ -9,6 +9,7 @@ import dashboardRouter from './routes/dashboard.js';
 import configRouter from './routes/config.js';
 import companyRouter from './routes/company.js';
 import authRouter from './routes/auth.js';
+import filesRouter from './routes/files.js';
 import { requireAuth } from './middleware/auth.js';
 import { UPLOADS_DIR } from './lib/upload.js';
 import { errorHandler } from './lib/errors.js';
@@ -32,6 +33,7 @@ app.use('/api', requireAuth, actionsRouter);
 app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/config', requireAuth, configRouter);
 app.use('/api/company', requireAuth, companyRouter);
+app.use('/api/files', requireAuth, filesRouter);
 
 app.use(errorHandler);
 

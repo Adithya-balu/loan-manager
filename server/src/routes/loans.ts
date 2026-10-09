@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import path from 'node:path';
-import fs from 'node:fs';
 import { z } from 'zod';
 import { generateSchedule, parseISODate } from '@loan/shared';
 import { prisma } from '../db.js';
@@ -16,7 +14,8 @@ import {
   settleLoan,
 } from '../lib/loanService.js';
 import { today } from '../lib/dates.js';
-import { UPLOADS_DIR, upload } from '../lib/upload.js';
+import { upload } from '../lib/upload.js';
+import { removeUpload, storeUpload } from '../lib/storage.js';
 
 const router = Router();
 
@@ -226,13 +225,15 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw new Error('No file uploaded');
+    const loan = await prisma.loan.findUniqueOrThrow({ where: { id: req.params.id } });
     const label = (req.body.label as string) || req.file.originalname;
+    const url = await storeUpload(req.file, `loans/${loan.id}`);
     const doc = await prisma.loanDocument.create({
       data: {
-        loanId: req.params.id,
+        loanId: loan.id,
         label,
         fileName: req.file.originalname,
-        url: `/uploads/${req.file.filename}`,
+        url,
         mimeType: req.file.mimetype,
       },
     });
@@ -245,9 +246,8 @@ router.delete(
   asyncHandler(async (req, res) => {
     const doc = await prisma.loanDocument.findUnique({ where: { id: req.params.docId } });
     if (doc) {
-      const filePath = path.join(UPLOADS_DIR, path.basename(doc.url));
-      fs.promises.unlink(filePath).catch(() => undefined);
       await prisma.loanDocument.delete({ where: { id: doc.id } });
+      await removeUpload(doc.url);
     }
     res.status(204).end();
   }),

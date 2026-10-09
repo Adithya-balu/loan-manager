@@ -1,6 +1,6 @@
 # Handoff — Loan Manager
 
-Last updated: 2026-10-08 (second pass)
+Last updated: 2026-10-09 (test-findings fixes)
 
 This document captures the current state of the project, what is done, what is
 not, and the gotchas you need to know to keep working on it. For setup and usage
@@ -27,8 +27,12 @@ see [README.md](README.md).
 - **Dev servers:** `npm run dev` from the repo root. Server scripts now load
   `server/.env` (`tsx watch --env-file=.env`). API: http://localhost:4000,
   client: http://localhost:5173 (Vite falls back to 5174+ if occupied).
-- **Not done:** Tamil for the remaining pages (see "Next session"), plus
-  client tests, CI, and deployment.
+- **2026-10-09 fixes:** an end-to-end test pass found money-accounting,
+  workflow and validation bugs; all are fixed with regression tests (see
+  "Fixes from the 2026-10-09 test pass"). `npm test` now runs shared, server
+  integration and client component tests (125+).
+- **Not done:** Tamil for the remaining pages (see "Next session"), plus CI
+  and deployment.
 
 ---
 
@@ -50,9 +54,21 @@ npm run dev
 Migrations (hand-written, apply with deploy — `migrate dev` prompts):
 
 ```bash
-cd server && npx prisma migrate deploy
+cd server && npx prisma migrate deploy   # needs DIRECT_URL in server/.env (same as DATABASE_URL locally)
 npx prisma db seed    # loads .env; prefer this over `npm run db:seed`
 ```
+
+Tests:
+
+```bash
+npm test                         # shared + server + client
+npm test --workspace server      # integration tests only
+```
+
+Server tests run against `<your db>_test` (derived from `DATABASE_URL`, or
+`TEST_DATABASE_URL`), which is created and migrated automatically and
+**truncated by every test file**. The config refuses any database whose name
+doesn't end in `_test`.
 
 ---
 
@@ -146,10 +162,41 @@ Migration: `server/prisma/migrations/20261007000000_features/migration.sql`
 - The Tamil copy was machine-authored — **have a native speaker review
   `ta.ts`** (especially financial terms: அசல், நிலுவை, ஜாமீன்தாரர், தவறியது).
 
+## Fixes from the 2026-10-09 test pass
+
+Product decisions confirmed for this pass: payments only on **ACTIVE** loans;
+dashboard shows defaulted balances as a **separate KPI**; customers with loans
+**can't be deleted**; "Mark loan defaulted" stays a manual admin override
+(ACTIVE loans only); uploads go to **Vercel Blob** when configured.
+
+| Area | Behaviour now | Tests |
+| --- | --- | --- |
+| Replay after capitalization | Capitalized installments are refilled up to the cash they held (`amountDue − capitalizedAmount`); edits that would remove that money are rejected. Previously money was double-counted. | `server/test/accounting.test.ts` |
+| Settlement | `Payment.kind = SETTLEMENT`; it can't be edited, deleting it undoes the settlement; a settled loan's other payments are locked (API + UI). | `accounting.test.ts`, `LoanDetailPage.test.tsx` |
+| Settlement accounting | Waived future interest → `Installment.waivedAmount`; settlement interest → `Payment.settlementInterest`. Collected = sum of payments; interest earned / revenue exclude waived interest. | `accounting.test.ts` |
+| Allocation performance | Allocation runs in memory with one write per changed installment (long daily loans used to risk the 5 s transaction timeout). | `payments.test.ts` (200-installment loan) |
+| Customer numbers | Next = highest `C####` + 1, retried on a concurrent collision (was count + 1, which collided after any delete). | `customers.test.ts` |
+| Change password | Wrong current password → 400 (was 401, which logged the user out). | `auth.test.ts`, `client/src/lib/api.test.ts` |
+| Action Required | Items carry `blockedBySequence`; later Collect buttons are disabled. | `collections.test.ts`, `ActionRequiredPage.test.tsx` |
+| Server rules | No payments on non-ACTIVE loans; no future-dated payments/edits/settlements; capitalize/default only past grace on ACTIVE loans; default-loan only on ACTIVE; repayment start ≥ disbursement; only ACTIVE loans editable; customer delete with loans → 409. | `rules.test.ts` |
+| Errors | `server/src/lib/errors.ts`: readable validation messages, 404 for missing records, generic 500 for database errors (no Prisma text or paths leak). | `errors.test.ts` |
+| Dashboard / reports | Outstanding/Overdue exclude DEFAULTED loans; new `kpis.defaultedBalance`; Outstanding report = ACTIVE only; statement report handles errors and stale responses. | `admin.test.ts`, `DashboardPage.test.tsx`, `ReportsPage.test.tsx` |
+| Dates | Server "today" follows `APP_TIMEZONE` (default `Asia/Kolkata`); client defaults use the local date (was UTC — wrong before 05:30 IST). | `dates.test.ts`, `format.test.ts` |
+| UI | Sidebar badge refreshes after any change (`data:changed` event from `api.ts`); `Field` links labels to inputs; whole-number checks on day fields. | `Layout.test.tsx`, `Field.test.tsx` |
+| Uploads | `server/src/lib/storage.ts`: with `BLOB_READ_WRITE_TOKEN`, photos/loan docs/logo go to private Blob, served via `GET /api/files/*` (auth); 4 MB cap there (Vercel body limit). Without it, local `server/uploads`. | `storage.test.ts` (Blob mocked) |
+
+Migration `20261009000000_settlement_accounting` adds `Payment.kind`,
+`Payment.settlementInterest`, `Installment.waivedAmount`, and tags existing
+settlement payments. Settlements recorded **before** this migration still
+have `waivedAmount = 0`, so their waived interest still counts as earned; re-settle
+(undo + settle) them if exact historical revenue matters.
+
 ## Next session
 
 1. Finish Tamil across the remaining pages (list above).
-2. Older backlog below.
+2. Browser end-to-end tests (Playwright) — couldn't run here: Chrome
+   automation is blocked on this machine.
+3. Older backlog below.
 
 Verified this pass: client + server `tsc`, `npm run build`, `npm test`
 (12 pass); API smoke tests for duplicate customer number (409), settlement
@@ -185,14 +232,16 @@ Two Postgres options:
    `server/.pgdata`, gitignored). Then point `DATABASE_URL` at
    `postgresql://postgres:postgres@localhost:5433/loan_manager?schema=public`.
 
-`server/.env` also needs `PORT=4000`, `CLIENT_ORIGIN="http://localhost:5173"`,
-and `JWT_SECRET`.
+`server/.env` also needs `DIRECT_URL` (same as `DATABASE_URL` locally),
+`PORT=4000`, `CLIENT_ORIGIN="http://localhost:5173"`, and `JWT_SECRET`.
+Optional: `APP_TIMEZONE`, `BLOB_READ_WRITE_TOKEN` (see `server/.env.example`).
 
 Applied migrations:
 
 - `20260818160457_init`
 - `20260819000000_add_users`
 - `20261007000000_features`
+- `20261009000000_settlement_accounting`
 
 ---
 
@@ -242,6 +291,15 @@ Demo data was reseeded after the settlement smoke test.
    `node_modules` predates the Vercel commit.
 10. **Payment order is enforced.** A client sending a later `installmentId`
     gets a 400; omit `installmentId` to just allocate oldest-first.
+11. **`DIRECT_URL` is required.** Prisma's `env()` has no fallback, so
+    `migrate deploy` fails without it.
+12. **Settled loans are frozen.** Only deleting the settlement payment
+    (which undoes the settlement) changes them.
+13. **Tests and random ports.** Server tests bind supertest's server to
+    `127.0.0.1` explicitly; listening on all interfaces let other local
+    processes on the same port answer, causing random 404s/hangs.
+14. **Node 26 + jsdom `localStorage`.** Node's built-in `localStorage` global
+    shadows jsdom's; `client/src/test/setup.ts` installs an in-memory one.
 
 ---
 
@@ -267,8 +325,8 @@ Demo data was reseeded after the settlement smoke test.
 
 - Auth hardening: rate-limit login, password reset, audit log of who
   recorded payments / settlements.
-- Client tests (Vitest + RTL) for schedule preview, payment allocation,
-  capitalization, settlement, login/protected routes.
+- More client tests: loan form preview, payment modal submit flow,
+  login/protected routes.
 - CSV/PDF export of statements / collection sheets.
 - SMS/email due reminders.
 - Bundle size (~720 kB client chunk, Recharts-heavy) — code-split charts.
@@ -281,7 +339,11 @@ Demo data was reseeded after the settlement smoke test.
 - Finance math: `shared/src/finance.ts` (+ `finance.test.ts`).
 - Server business logic: `server/src/lib/loanService.ts` (`recordPayment`,
   `computeSettlement`, `settleLoan`), `riskService.ts`.
-- Uploads: `server/src/lib/upload.ts`, served at `/uploads` behind auth.
+- Uploads: `server/src/lib/upload.ts` (multer), `server/src/lib/storage.ts`
+  (disk vs Blob), `server/src/routes/files.ts` (Blob files behind auth).
+- Errors: `server/src/lib/errors.ts` (central handler).
+- Tests: `server/test/*` (helpers in `helpers.ts`), `client/src/**/*.test.tsx`
+  (render helper and fixtures in `client/src/test/`).
 - Auth: `server/src/lib/auth.ts`, `server/src/middleware/auth.ts`,
   `server/src/routes/auth.ts`, `client/src/context/AuthContext.tsx`.
 - Company: `server/src/routes/company.ts`,

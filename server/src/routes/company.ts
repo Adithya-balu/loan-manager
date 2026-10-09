@@ -1,11 +1,10 @@
 import { Router } from 'express';
-import path from 'node:path';
-import fs from 'node:fs';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import { requireRole } from '../middleware/auth.js';
-import { UPLOADS_DIR, upload } from '../lib/upload.js';
+import { upload } from '../lib/upload.js';
+import { removeUpload, storeUpload } from '../lib/storage.js';
 
 const router = Router();
 
@@ -65,14 +64,12 @@ router.post(
   asyncHandler(async (req, res) => {
     if (!req.file) throw new Error('No file uploaded');
     const existing = await getOrCreateProfile();
-    if (existing.logoUrl) {
-      const prev = path.join(UPLOADS_DIR, path.basename(existing.logoUrl));
-      fs.promises.unlink(prev).catch(() => undefined);
-    }
+    const logoUrl = await storeUpload(req.file, 'company');
     const profile = await prisma.companyProfile.update({
       where: { id: COMPANY_ID },
-      data: { logoUrl: `/uploads/${req.file.filename}` },
+      data: { logoUrl },
     });
+    await removeUpload(existing.logoUrl);
     res.status(201).json(profile);
   }),
 );

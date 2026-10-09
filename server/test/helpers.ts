@@ -7,6 +7,15 @@ import { today } from '../src/lib/dates.js';
 
 export { app, prisma };
 
+/**
+ * One server per test file, bound explicitly to 127.0.0.1. supertest's default
+ * (listen on all interfaces, then connect to 127.0.0.1) can land on another
+ * local process that holds the same port on 127.0.0.1 — macOS allows both
+ * binds — which showed up as random 404s and hangs.
+ */
+export const server = app.listen(0, '127.0.0.1');
+server.unref();
+
 export const ADMIN = { email: 'admin@loanmanager.local', password: 'admin123' };
 export const AGENT = { email: 'agent@loanmanager.local', password: 'agent123' };
 
@@ -32,7 +41,7 @@ export type Client = ReturnType<typeof request.agent>;
 
 /** A cookie-keeping client already logged in with the given credentials. */
 export async function login(creds = ADMIN): Promise<Client> {
-  const client = request.agent(app);
+  const client = request.agent(server);
   const res = await client.post('/api/auth/login').send(creds);
   expect(res.status).toBe(200);
   return client;

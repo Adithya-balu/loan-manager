@@ -2,13 +2,17 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { RequestHandler } from 'express';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** True when uploads should go to Vercel Blob instead of local disk (see storage.ts). */
+export const blobEnabled = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
 /**
- * Shared uploads directory for local-dev file routes (profile photos, loan
- * documents). Vercel Functions are read-only except /tmp, so mkdir is best
- * effort — customer KYC documents go to Vercel Blob instead.
+ * Local-dev uploads directory (profile photos, loan documents, logos).
+ * Vercel Functions are read-only except /tmp, so mkdir is best effort —
+ * there, files go to Vercel Blob instead.
  */
 export const UPLOADS_DIR = path.resolve(__dirname, '../../uploads');
 try {
@@ -17,7 +21,7 @@ try {
   // Read-only filesystem (e.g. Vercel) — safe to ignore.
 }
 
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
   filename: (_req, file, cb) => {
     const ext = path.extname(file.originalname);
@@ -29,5 +33,16 @@ const storage = multer.diskStorage({
   },
 });
 
-/** Configured multer instance (15 MB limit) shared across routes. */
-export const upload = multer({ storage, limits: { fileSize: 15 * 1024 * 1024 } });
+const limits = { fileSize: 15 * 1024 * 1024 };
+const toDisk = multer({ storage: diskStorage, limits });
+// Blob uploads are streamed from memory; storage.ts enforces the smaller Vercel cap.
+const toMemory = multer({ storage: multer.memoryStorage(), limits });
+
+/** Multer middleware (15 MB limit), choosing disk or memory per request. */
+export const upload = {
+  single: (field: string): RequestHandler => {
+    const disk = toDisk.single(field);
+    const memory = toMemory.single(field);
+    return (req, res, next) => (blobEnabled() ? memory : disk)(req, res, next);
+  },
+};

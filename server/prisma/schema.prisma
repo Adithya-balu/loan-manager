@@ -6,9 +6,10 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  // Optional: point at Neon's unpooled/direct connection string for migrations
-  // when DATABASE_URL is a pooled (pgbouncer) connection string. Falls back to
-  // DATABASE_URL when DIRECT_URL isn't set.
+  // Required. Locally set it to the same value as DATABASE_URL; in production
+  // point it at Neon's unpooled/direct connection string for migrations when
+  // DATABASE_URL is a pooled (pgbouncer) connection string. Prisma does not
+  // fall back to DATABASE_URL — migrate fails if this is unset.
   directUrl = env("DIRECT_URL")
 }
 

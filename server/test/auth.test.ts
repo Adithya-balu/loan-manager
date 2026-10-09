@@ -1,23 +1,23 @@
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ADMIN, AGENT, app, login, resetDb } from './helpers.js';
+import { ADMIN, AGENT, login, resetDb, server } from './helpers.js';
 
 beforeAll(resetDb);
 
 describe('authentication', () => {
   it('health is public, everything else needs a session', async () => {
-    expect((await request(app).get('/api/health')).body).toEqual({ ok: true });
-    expect((await request(app).get('/api/customers')).status).toBe(401);
-    expect((await request(app).get('/uploads/anything.png')).status).toBe(401);
+    expect((await request(server).get('/api/health')).body).toEqual({ ok: true });
+    expect((await request(server).get('/api/customers')).status).toBe(401);
+    expect((await request(server).get('/uploads/anything.png')).status).toBe(401);
   });
 
   it('rejects bad credentials', async () => {
-    expect((await request(app).post('/api/auth/login').send({ ...ADMIN, password: 'wrong' })).status).toBe(401);
-    expect((await request(app).post('/api/auth/login').send({ email: 'nobody@x.com', password: 'x' })).status).toBe(401);
+    expect((await request(server).post('/api/auth/login').send({ ...ADMIN, password: 'wrong' })).status).toBe(401);
+    expect((await request(server).post('/api/auth/login').send({ email: 'nobody@x.com', password: 'x' })).status).toBe(401);
   });
 
   it('logs in case-insensitively and never exposes password hashes', async () => {
-    const client = request.agent(app);
+    const client = request.agent(server);
     const res = await client.post('/api/auth/login').send({ ...ADMIN, email: ADMIN.email.toUpperCase() });
     expect(res.status).toBe(200);
     const me = await client.get('/api/auth/me');
@@ -65,6 +65,6 @@ describe('change password', () => {
     expect(wrong.body.error).toBe('Current password is incorrect');
     expect((await user.get('/api/auth/me')).status).toBe(200);
     expect((await user.post('/api/auth/change-password').send({ currentPassword: 'password1', newPassword: 'newpass123' })).status).toBe(200);
-    expect((await request(app).post('/api/auth/login').send({ email: 'pw@x.com', password: 'password1' })).status).toBe(401);
+    expect((await request(server).post('/api/auth/login').send({ email: 'pw@x.com', password: 'password1' })).status).toBe(401);
   });
 });

@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { type Client, app, createCustomer, createLoan, iso, login, resetDb } from './helpers.js';
+import { type Client, createCustomer, createLoan, iso, login, resetDb, server } from './helpers.js';
 import request from 'supertest';
 
 let admin: Client;
@@ -71,6 +71,6 @@ describe('database errors do not leak (#8)', () => {
   });
 
   it('health still works without auth', async () => {
-    expect((await request(app).get('/api/health')).status).toBe(200);
+    expect((await request(server).get('/api/health')).status).toBe(200);
   });
 });

@@ -1,7 +1,5 @@
 import { Router } from 'express';
 import { Readable } from 'node:stream';
-import path from 'node:path';
-import fs from 'node:fs';
 import { del, get } from '@vercel/blob';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { z } from 'zod';
@@ -10,7 +8,8 @@ import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import { computeCustomerRisk } from '../lib/riskService.js';
 import { getSettingsMap, rollupLoan } from '../lib/loanService.js';
-import { UPLOADS_DIR, upload } from '../lib/upload.js';
+import { upload } from '../lib/upload.js';
+import { removeUpload, storeUpload } from '../lib/storage.js';
 
 const router = Router();
 
@@ -213,16 +212,14 @@ router.post(
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) throw new Error('No file uploaded');
-    const existing = await prisma.customer.findUnique({ where: { id: req.params.id } });
-    if (existing?.photoUrl) {
-      const prev = path.join(UPLOADS_DIR, path.basename(existing.photoUrl));
-      fs.promises.unlink(prev).catch(() => undefined);
-    }
+    const existing = await prisma.customer.findUniqueOrThrow({ where: { id: req.params.id } });
+    const photoUrl = await storeUpload(req.file, `customers/${existing.id}/photo`);
     const customer = await prisma.customer.update({
-      where: { id: req.params.id },
-      data: { photoUrl: `/uploads/${req.file.filename}` },
+      where: { id: existing.id },
+      data: { photoUrl },
       include: { documents: true },
     });
+    await removeUpload(existing.photoUrl);
     res.status(201).json(customer);
   }),
 );
