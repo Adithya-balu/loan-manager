@@ -135,7 +135,8 @@ export const api = {
   updateLoan: (id: string, data: LoanInput) => put<Loan>(`/loans/${id}`, data),
   deleteLoan: (id: string) => del(`/loans/${id}`),
   markLoanDefaulted: (id: string) => post<Loan>(`/loans/${id}/default`),
-  getSettlement: (id: string) => get<SettlementQuote>(`/loans/${id}/settlement`),
+  getSettlement: (id: string, date?: string) =>
+    get<SettlementQuote>(`/loans/${id}/settlement${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   settleLoan: (id: string, data: { date: string; mode?: PaymentInput['mode'] }) =>
     post<SettlementResult>(`/loans/${id}/settlement`, data),
   uploadLoanDocument: (id: string, file: File, label: string) => {

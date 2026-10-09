@@ -10,6 +10,7 @@ import {
   verifyPassword,
 } from '../lib/auth.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { DUPLICATE_USER_EMAIL } from '@loan/shared';
 
 const router = Router();
 
@@ -96,7 +97,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const data = createUserSchema.parse(req.body);
     const existing = await prisma.user.findUnique({ where: { email: data.email.toLowerCase() } });
-    if (existing) return res.status(409).json({ error: 'A user with that email already exists' });
+    if (existing) return res.status(409).json({ error: DUPLICATE_USER_EMAIL });
     const user = await prisma.user.create({
       data: {
         name: data.name,

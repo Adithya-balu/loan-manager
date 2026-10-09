@@ -10,26 +10,28 @@ import { TBody, TD, TH, THead, TR, Table } from '../../components/ui/Table';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
 import { FREQUENCY_LABEL, formatCurrency, formatDate } from '../../lib/format';
-import type { LoanStatus } from '../../lib/types';
+import type { LoanFrequency, LoanStatus } from '../../lib/types';
 
 export function LoansListPage() {
   const navigate = useNavigate();
   const { data, loading, error, reload } = useApi(() => api.listLoans(), []);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<LoanStatus | 'ALL'>('ALL');
+  const [frequency, setFrequency] = useState<LoanFrequency | 'ALL'>('ALL');
 
   const filtered = useMemo(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();
     return data.filter((l) => {
       if (status !== 'ALL' && l.status !== status) return false;
+      if (frequency !== 'ALL' && l.frequency !== frequency) return false;
       if (!q) return true;
       return (
         l.customer.name.toLowerCase().includes(q) ||
         l.customer.customerNumber.toLowerCase().includes(q)
       );
     });
-  }, [data, query, status]);
+  }, [data, query, status, frequency]);
 
   return (
     <>
@@ -60,6 +62,16 @@ export function LoansListPage() {
             <option value="ACTIVE">Active</option>
             <option value="CLOSED">Closed</option>
             <option value="DEFAULTED">Defaulted</option>
+          </Select>
+          <Select
+            value={frequency}
+            onChange={(e) => setFrequency(e.target.value as LoanFrequency | 'ALL')}
+            className="max-w-[10rem]"
+          >
+            <option value="ALL">All types</option>
+            <option value="DAILY">{FREQUENCY_LABEL.DAILY}</option>
+            <option value="WEEKLY">{FREQUENCY_LABEL.WEEKLY}</option>
+            <option value="MONTHLY">{FREQUENCY_LABEL.MONTHLY}</option>
           </Select>
         </div>
         {loading ? (

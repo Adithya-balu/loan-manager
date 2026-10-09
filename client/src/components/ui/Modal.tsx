@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { Button } from './Button';
+import { useI18n } from '../../i18n/I18nContext';
 
 export function Modal({
   open,
@@ -60,7 +61,7 @@ export function ConfirmDialog({
   open,
   title,
   message,
-  confirmLabel = 'Confirm',
+  confirmLabel,
   danger = false,
   busy = false,
   onConfirm,
@@ -75,6 +76,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Modal
       open={open}
@@ -84,10 +86,10 @@ export function ConfirmDialog({
       footer={
         <>
           <Button variant="secondary" onClick={onCancel} disabled={busy}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant={danger ? 'danger' : 'primary'} onClick={onConfirm} disabled={busy}>
-            {busy ? 'Working…' : confirmLabel}
+            {busy ? t('common.working') : (confirmLabel ?? t('common.confirm'))}
           </Button>
         </>
       }

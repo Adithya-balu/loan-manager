@@ -5,13 +5,14 @@ import { Field, Input, Select } from './ui/Field';
 import { Spinner } from './ui/Feedback';
 import { useToast } from './ui/Toast';
 import { api } from '../lib/api';
-import { formatCurrency, todayISO } from '../lib/format';
+import { formatCurrency, formatDate, todayISO } from '../lib/format';
 import { PAYMENT_MODES } from '@loan/shared';
 import type { PaymentMode, SettlementQuote } from '../lib/types';
 
 /**
- * Early-settlement (foreclosure) modal. Fetches a live settlement quote,
- * shows the breakdown, and on confirm records the settlement + closes the loan.
+ * Early-settlement (foreclosure) modal. Fetches a settlement quote for the
+ * chosen date (re-quoting when it changes), shows the breakdown, and on confirm
+ * records the settlement as of that same date + closes the loan.
  */
 export function SettlementModal({
   open,
@@ -35,21 +36,38 @@ export function SettlementModal({
 
   useEffect(() => {
     if (!open) return;
-    setQuote(null);
-    setLoading(true);
     setDate(todayISO());
     setMode('CASH');
-    api
-      .getSettlement(loanId)
-      .then(setQuote)
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to load quote'))
-      .finally(() => setLoading(false));
-  }, [open, loanId, toast]);
+  }, [open]);
+
+  // Interest-to-date depends on the as-of date, so re-quote whenever it changes.
+  useEffect(() => {
+    if (!open) return;
+    setQuote(null);
+    if (!date) return;
+    setLoading(true);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api
+        .getSettlement(loanId, date)
+        .then((q) => !cancelled && setQuote(q))
+        .catch((e: unknown) => {
+          if (!cancelled) toast.error(e instanceof Error ? e.message : 'Failed to load quote');
+        })
+        .finally(() => !cancelled && setLoading(false));
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, loanId, date, toast]);
 
   async function onConfirm() {
+    if (!quote) return;
     setSaving(true);
     try {
-      await api.settleLoan(loanId, { date, mode });
+      // Settle with the date that produced the displayed quote.
+      await api.settleLoan(loanId, { date: quote.asOf, mode });
       toast.success('Loan settled and closed');
       onSuccess();
       onClose();
@@ -78,7 +96,7 @@ export function SettlementModal({
     >
       <div className="space-y-4">
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          Settle the loan for {customerName} as of today. This records a single settlement payment
+          Settle the loan for {customerName} as of the date below. This records a single settlement payment
           and marks the loan as closed.
         </p>
 
@@ -91,7 +109,7 @@ export function SettlementModal({
         {quote && (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/60">
             <Row label="Remaining principal" value={formatCurrency(quote.remainingPrincipal)} />
-            <Row label="Interest up to today" value={formatCurrency(quote.interestToDate)} />
+            <Row label={`Interest up to ${formatDate(quote.asOf)}`} value={formatCurrency(quote.interestToDate)} />
             <Row label="Overdue amount" value={formatCurrency(quote.overdueDue)} />
             <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-2 font-semibold text-slate-800 dark:border-slate-700 dark:text-slate-100">
               <span>Settlement amount</span>

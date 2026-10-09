@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { InstallmentStatus, LoanStatus, RiskResult } from '../../lib/types';
 import { LOAN_STATUS_TONE, RISK_TONE, STATUS_TONE } from '../../lib/format';
+import { useI18n } from '../../i18n/I18nContext';
 
 type Tone = 'gray' | 'blue' | 'green' | 'amber' | 'red' | 'indigo';
 
@@ -24,14 +25,17 @@ export function Badge({ tone = 'gray', children }: { tone?: Tone; children: Reac
 }
 
 export function StatusBadge({ status }: { status: InstallmentStatus }) {
-  return <Badge tone={STATUS_TONE[status]}>{status}</Badge>;
+  const { t } = useI18n();
+  return <Badge tone={STATUS_TONE[status]}>{t(`instStatus.${status}`)}</Badge>;
 }
 
 export function LoanStatusBadge({ status }: { status: LoanStatus }) {
-  return <Badge tone={LOAN_STATUS_TONE[status]}>{status}</Badge>;
+  const { t } = useI18n();
+  return <Badge tone={LOAN_STATUS_TONE[status]}>{t(`loanStatus.${status}`)}</Badge>;
 }
 
 export function RiskBadge({ risk }: { risk: RiskResult }) {
-  const label = risk.score === null ? 'No history' : `${risk.band} · ${risk.score}`;
+  const { t } = useI18n();
+  const label = risk.score === null ? t('risk.noHistory') : `${t(`risk.${risk.band}`)} · ${risk.score}`;
   return <Badge tone={RISK_TONE[risk.band]}>{label}</Badge>;
 }

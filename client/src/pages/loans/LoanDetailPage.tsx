@@ -12,13 +12,19 @@ import { PaymentModal, type PaymentEditTarget, type PaymentPrefill } from '../..
 import { SettlementModal } from '../../components/SettlementModal';
 import { useApi } from '../../hooks/useApi';
 import { api } from '../../lib/api';
-import { FREQUENCY_LABEL, formatCurrency, formatDate, toDateInput } from '../../lib/format';
+import { formatCurrency, formatDate, toDateInput } from '../../lib/format';
+import { useI18n } from '../../i18n/I18nContext';
 import type { EnrichedInstallment, PaymentWithInstallment } from '../../lib/types';
+
+function isOpenInstallment(inst: EnrichedInstallment) {
+  return inst.derivedStatus !== 'PAID' && inst.derivedStatus !== 'DEFAULTED' && inst.remaining > 0;
+}
 
 export function LoanDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { t, tNode } = useI18n();
   const { data, loading, error, reload } = useApi(() => api.getLoan(id), [id]);
 
   const [payOpen, setPayOpen] = useState(false);
@@ -37,10 +43,13 @@ export function LoanDetailPage() {
   const [docUploading, setDocUploading] = useState(false);
 
   if (loading) return <LoadingState />;
-  if (error || !data) return <ErrorState message={error ?? 'Not found'} onRetry={reload} />;
+  if (error || !data) return <ErrorState message={error ?? t('common.notFound')} onRetry={reload} />;
 
   const { rollup } = data;
   const hasPayments = data.payments.length > 0;
+  // Payments are allocated oldest-first, so only the earliest open installment is collectable.
+  const firstOpen = data.schedule.find(isOpenInstallment);
+  const firstOpenId = firstOpen?.id;
 
   function openPayment(prefill?: PaymentPrefill) {
     setPayPrefill(prefill);
@@ -65,11 +74,11 @@ export function LoanDetailPage() {
     setDeletePaymentBusy(true);
     try {
       await api.deletePayment(deletePaymentTarget.id);
-      toast.success('Payment deleted');
+      toast.success(t('loanDetail.paymentDeleted'));
       setDeletePaymentTarget(null);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to delete payment');
+      toast.error(e instanceof Error ? e.message : t('loanDetail.paymentDeleteFailed'));
     } finally {
       setDeletePaymentBusy(false);
     }
@@ -82,13 +91,16 @@ export function LoanDetailPage() {
       const res = await api.capitalizeInstallment(capTarget.id);
       toast.success(
         res.loanDefaulted
-          ? 'Installment capitalized. Loan marked as defaulted.'
-          : `Capitalized ${formatCurrency(res.capitalized)} into principal; ${res.reamortized} installments re-amortized.`,
+          ? t('loanDetail.capitalizedDefaulted')
+          : t('loanDetail.capitalized', {
+              amount: formatCurrency(res.capitalized),
+              count: res.reamortized,
+            }),
       );
       setCapTarget(null);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(e instanceof Error ? e.message : t('common.actionFailed'));
     } finally {
       setCapBusy(false);
     }
@@ -98,11 +110,11 @@ export function LoanDetailPage() {
     setDefaultBusy(true);
     try {
       await api.markLoanDefaulted(id);
-      toast.success('Loan marked as defaulted');
+      toast.success(t('loanDetail.loanDefaulted'));
       setDefaultLoanOpen(false);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed');
+      toast.error(e instanceof Error ? e.message : t('common.actionFailed'));
     } finally {
       setDefaultBusy(false);
     }
@@ -111,10 +123,10 @@ export function LoanDetailPage() {
   async function confirmDelete() {
     try {
       await api.deleteLoan(id);
-      toast.success('Loan deleted');
+      toast.success(t('loanDetail.loanDeleted'));
       navigate('/loans');
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Delete failed');
+      toast.error(e instanceof Error ? e.message : t('common.deleteFailed'));
       setDeleteOpen(false);
     }
   }
@@ -123,12 +135,12 @@ export function LoanDetailPage() {
     setDocUploading(true);
     try {
       await api.uploadLoanDocument(id, file, docLabel.trim() || file.name);
-      toast.success('Document uploaded');
+      toast.success(t('loanDetail.docUploaded'));
       setDocLabel('');
       if (docFileRef.current) docFileRef.current.value = '';
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Upload failed');
+      toast.error(e instanceof Error ? e.message : t('common.uploadFailed'));
     } finally {
       setDocUploading(false);
     }
@@ -137,10 +149,10 @@ export function LoanDetailPage() {
   async function onDeleteDoc(docId: string) {
     try {
       await api.deleteLoanDocument(id, docId);
-      toast.success('Document removed');
+      toast.success(t('loanDetail.docRemoved'));
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Delete failed');
+      toast.error(e instanceof Error ? e.message : t('common.deleteFailed'));
     }
   }
 
@@ -149,7 +161,7 @@ export function LoanDetailPage() {
       <PageHeader
         title={
           <span className="flex items-center gap-3">
-            {FREQUENCY_LABEL[data.frequency]} Loan
+            {t('loanDetail.title', { frequency: t(`freq.${data.frequency}`) })}
             <LoanStatusBadge status={data.status} />
           </span>
         }
@@ -161,25 +173,20 @@ export function LoanDetailPage() {
         actions={
           <>
             {data.status === 'ACTIVE' && (
-              <Button onClick={() => openPayment(undefined)}>+ Record Payment</Button>
-            )}
-            {data.status === 'ACTIVE' && (
-              <Button variant="secondary" onClick={() => setSettleOpen(true)}>
-                Pre-close / Settle
-              </Button>
+              <Button onClick={() => openPayment(undefined)}>{t('loanDetail.recordPayment')}</Button>
             )}
             {rollup.loanDefaultEligible && (
               <Button variant="danger" onClick={() => setDefaultLoanOpen(true)}>
-                Mark Loan Defaulted
+                {t('loanDetail.markDefaulted')}
               </Button>
             )}
             {!hasPayments && (
               <Link to={`/loans/${id}/edit`}>
-                <Button variant="secondary">Edit</Button>
+                <Button variant="secondary">{t('common.edit')}</Button>
               </Link>
             )}
             <Button variant="ghost" onClick={() => setDeleteOpen(true)}>
-              Delete
+              {t('common.delete')}
             </Button>
           </>
         }
@@ -187,44 +194,53 @@ export function LoanDetailPage() {
 
       {rollup.loanDefaultEligible && (
         <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-          No payment for {rollup.lastPaymentDate ? `since ${formatDate(rollup.lastPaymentDate)}` : 'a while'}
-          . This loan has crossed its default threshold and can be marked defaulted.
+          {rollup.lastPaymentDate
+            ? t('loanDetail.defaultEligibleSince', { date: formatDate(rollup.lastPaymentDate) })
+            : t('loanDetail.defaultEligible')}
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Principal" value={formatCurrency(data.principal)} hint={`${data.annualRatePct}% · ${data.interestMethod}`} />
-        <StatCard label="Outstanding" value={formatCurrency(rollup.outstanding)} />
-        <StatCard label="Collected" value={formatCurrency(rollup.totalPaid)} tone="positive" />
         <StatCard
-          label="Overdue"
+          label={t('loanDetail.principal')}
+          value={formatCurrency(data.principal)}
+          hint={`${data.annualRatePct}% · ${t(`method.${data.interestMethod}`)}`}
+        />
+        <StatCard label={t('loanDetail.outstanding')} value={formatCurrency(rollup.outstanding)} />
+        <StatCard label={t('loanDetail.collected')} value={formatCurrency(rollup.totalPaid)} tone="positive" />
+        <StatCard
+          label={t('loanDetail.overdue')}
           value={formatCurrency(rollup.overdueAmount)}
           tone={rollup.overdueAmount > 0 ? 'danger' : 'default'}
         />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Total Payable" value={formatCurrency(rollup.totalPayable)} />
-        <StatCard label="Total Interest" value={formatCurrency(rollup.totalInterest)} />
+        <StatCard label={t('loanDetail.totalPayable')} value={formatCurrency(rollup.totalPayable)} />
+        <StatCard label={t('loanDetail.totalInterest')} value={formatCurrency(rollup.totalInterest)} />
         <StatCard
-          label="Installments Paid"
+          label={t('loanDetail.installmentsPaid')}
           value={`${rollup.paidInstallments} / ${data.installments}`}
         />
-        <StatCard label="Next Due" value={formatDate(rollup.nextDueDate)} hint={`Grace: ${data.effectiveGraceDays} days`} />
+        <StatCard
+          label={t('loanDetail.nextDue')}
+          value={formatDate(rollup.nextDueDate)}
+          hint={t('loanDetail.graceHint', { days: data.effectiveGraceDays })}
+        />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Loan Details" />
+          <CardHeader title={t('loanDetail.details')} />
           <CardBody>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <dt className="text-slate-400 dark:text-slate-500">Disbursement Mode</dt>
+              <dt className="text-slate-400 dark:text-slate-500">{t('loanDetail.disbursementMode')}</dt>
               <dd className="text-slate-700 dark:text-slate-200">{data.disbursementMode}</dd>
-              <dt className="text-slate-400 dark:text-slate-500">Disbursed On</dt>
+              <dt className="text-slate-400 dark:text-slate-500">{t('loanDetail.disbursedOn')}</dt>
               <dd className="text-slate-700 dark:text-slate-200">{formatDate(data.disbursementDate)}</dd>
               {data.guarantorName && (
                 <>
-                  <dt className="text-slate-400 dark:text-slate-500">Guarantor</dt>
+                  <dt className="text-slate-400 dark:text-slate-500">{t('loanDetail.guarantor')}</dt>
                   <dd className="text-slate-700 dark:text-slate-200">
                     {data.guarantorName}
                     {data.guarantorRelation ? ` (${data.guarantorRelation})` : ''}
@@ -233,13 +249,13 @@ export function LoanDetailPage() {
               )}
               {data.guarantorMobile && (
                 <>
-                  <dt className="text-slate-400 dark:text-slate-500">Guarantor Mobile</dt>
+                  <dt className="text-slate-400 dark:text-slate-500">{t('loanDetail.guarantorMobile')}</dt>
                   <dd className="text-slate-700 dark:text-slate-200">{data.guarantorMobile}</dd>
                 </>
               )}
               {data.guarantorAddress && (
                 <>
-                  <dt className="text-slate-400 dark:text-slate-500">Guarantor Address</dt>
+                  <dt className="text-slate-400 dark:text-slate-500">{t('loanDetail.guarantorAddress')}</dt>
                   <dd className="text-slate-700 dark:text-slate-200">{data.guarantorAddress}</dd>
                 </>
               )}
@@ -248,12 +264,12 @@ export function LoanDetailPage() {
         </Card>
 
         <Card>
-          <CardHeader title="Loan Documents" subtitle="Loan-specific files" />
+          <CardHeader title={t('loanDetail.documents')} subtitle={t('loanDetail.documentsSubtitle')} />
           <CardBody className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <input
                 className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
-                placeholder="Label (optional)"
+                placeholder={t('loanDetail.docLabelPlaceholder')}
                 value={docLabel}
                 onChange={(e) => setDocLabel(e.target.value)}
               />
@@ -267,10 +283,10 @@ export function LoanDetailPage() {
                   if (file) void onUploadDoc(file);
                 }}
               />
-              {docUploading && <span className="text-xs text-slate-400">Uploading…</span>}
+              {docUploading && <span className="text-xs text-slate-400">{t('common.uploading')}</span>}
             </div>
             {data.documents.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-400">No documents uploaded.</p>
+              <p className="py-4 text-center text-sm text-slate-400">{t('loanDetail.noDocuments')}</p>
             ) : (
               <ul className="divide-y divide-slate-100 dark:divide-slate-700">
                 {data.documents.map((d) => (
@@ -289,7 +305,7 @@ export function LoanDetailPage() {
                       </p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => onDeleteDoc(d.id)}>
-                      Remove
+                      {t('common.remove')}
                     </Button>
                   </li>
                 ))}
@@ -300,18 +316,28 @@ export function LoanDetailPage() {
       </div>
 
       <Card className="mt-6">
-        <CardHeader title="Repayment Schedule" subtitle={`${data.schedule.length} installments`} />
+        <CardHeader
+          title={t('loanDetail.schedule')}
+          subtitle={t('loanDetail.installmentsCount', { count: data.schedule.length })}
+          action={
+            data.status === 'ACTIVE' && (
+              <Button size="sm" variant="secondary" onClick={() => setSettleOpen(true)}>
+                {t('loanDetail.settle')}
+              </Button>
+            )
+          }
+        />
         <Table>
           <THead>
             <TR>
               <TH>#</TH>
-              <TH>Due Date</TH>
-              <TH align="right">Amount</TH>
-              <TH align="right">Paid</TH>
-              <TH align="right">Remaining</TH>
-              <TH align="center">Status</TH>
-              <TH align="center">Late</TH>
-              <TH align="right">Action</TH>
+              <TH>{t('loanDetail.colDueDate')}</TH>
+              <TH align="right">{t('loanDetail.colAmount')}</TH>
+              <TH align="right">{t('loanDetail.colPaid')}</TH>
+              <TH align="right">{t('loanDetail.colRemaining')}</TH>
+              <TH align="center">{t('loanDetail.colStatus')}</TH>
+              <TH align="center">{t('loanDetail.colLate')}</TH>
+              <TH align="right">{t('loanDetail.colAction')}</TH>
             </TR>
           </THead>
           <TBody>
@@ -336,27 +362,30 @@ export function LoanDetailPage() {
                 </TD>
                 <TD align="right">
                   <div className="flex items-center justify-end gap-1">
-                    {data.status === 'ACTIVE' &&
-                      inst.derivedStatus !== 'PAID' &&
-                      inst.derivedStatus !== 'DEFAULTED' &&
-                      inst.remaining > 0 && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() =>
-                            openPayment({
-                              installmentId: inst.id,
-                              amount: inst.remaining,
-                              sequence: inst.sequence,
-                            })
-                          }
-                        >
-                          Collect
-                        </Button>
-                      )}
+                    {data.status === 'ACTIVE' && isOpenInstallment(inst) && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={inst.id !== firstOpenId}
+                        title={
+                          inst.id !== firstOpenId
+                            ? t('loanDetail.collectFirst', { sequence: firstOpen?.sequence ?? '' })
+                            : undefined
+                        }
+                        onClick={() =>
+                          openPayment({
+                            installmentId: inst.id,
+                            amount: inst.remaining,
+                            sequence: inst.sequence,
+                          })
+                        }
+                      >
+                        {t('loanDetail.collect')}
+                      </Button>
+                    )}
                     {inst.actionRequired && (
                       <Button size="sm" variant="danger" onClick={() => setCapTarget(inst)}>
-                        {inst.paidAmount > 0 ? 'Capitalize' : 'Default'}
+                        {inst.paidAmount > 0 ? t('loanDetail.capitalize') : t('loanDetail.default')}
                       </Button>
                     )}
                   </div>
@@ -368,19 +397,22 @@ export function LoanDetailPage() {
       </Card>
 
       <Card className="mt-6">
-        <CardHeader title="Payments" subtitle={`${data.payments.length} recorded`} />
+        <CardHeader
+          title={t('loanDetail.payments')}
+          subtitle={t('loanDetail.paymentsCount', { count: data.payments.length })}
+        />
         {data.payments.length === 0 ? (
-          <EmptyState title="No payments recorded yet" />
+          <EmptyState title={t('loanDetail.noPayments')} />
         ) : (
           <Table>
             <THead>
               <TR>
-                <TH>Date</TH>
-                <TH align="center">Installment</TH>
-                <TH>Mode</TH>
-                <TH>Note</TH>
-                <TH align="right">Amount</TH>
-                <TH align="right">Actions</TH>
+                <TH>{t('loanDetail.colDate')}</TH>
+                <TH align="center">{t('loanDetail.colInstallment')}</TH>
+                <TH>{t('loanDetail.colMode')}</TH>
+                <TH>{t('loanDetail.colNote')}</TH>
+                <TH align="right">{t('loanDetail.colAmount')}</TH>
+                <TH align="right">{t('loanDetail.colActions')}</TH>
               </TR>
             </THead>
             <TBody>
@@ -394,10 +426,10 @@ export function LoanDetailPage() {
                   <TD align="right">
                     <div className="flex justify-end gap-2">
                       <Button size="sm" variant="secondary" onClick={() => openEditPayment(p)}>
-                        Edit
+                        {t('common.edit')}
                       </Button>
                       <Button size="sm" variant="danger" onClick={() => setDeletePaymentTarget(p)}>
-                        Delete
+                        {t('common.delete')}
                       </Button>
                     </div>
                   </TD>
@@ -414,7 +446,10 @@ export function LoanDetailPage() {
         loanId={id}
         prefill={payPrefill}
         editTarget={editingPayment}
-        subtitle={`${data.customer.name} · outstanding ${formatCurrency(rollup.outstanding)}`}
+        subtitle={t('loanDetail.paymentSubtitle', {
+          name: data.customer.name,
+          amount: formatCurrency(rollup.outstanding),
+        })}
         onSuccess={reload}
       />
 
@@ -428,19 +463,17 @@ export function LoanDetailPage() {
 
       <ConfirmDialog
         open={deletePaymentTarget !== null}
-        title="Delete payment?"
+        title={t('loanDetail.deletePaymentTitle')}
         danger
         busy={deletePaymentBusy}
-        confirmLabel="Delete"
+        confirmLabel={t('common.delete')}
         message={
-          deletePaymentTarget ? (
-            <>
-              This will remove the payment of{' '}
-              <strong>{formatCurrency(deletePaymentTarget.amount)}</strong> dated{' '}
-              {formatDate(deletePaymentTarget.date)} and recompute the installment schedule. This
-              cannot be undone.
-            </>
-          ) : null
+          deletePaymentTarget
+            ? tNode('loanDetail.deletePaymentMessage', {
+                amount: <strong>{formatCurrency(deletePaymentTarget.amount)}</strong>,
+                date: formatDate(deletePaymentTarget.date),
+              })
+            : null
         }
         onConfirm={confirmDeletePayment}
         onCancel={() => setDeletePaymentTarget(null)}
@@ -448,21 +481,21 @@ export function LoanDetailPage() {
 
       <ConfirmDialog
         open={capTarget !== null}
-        title={capTarget?.paidAmount ? 'Capitalize shortfall?' : 'Mark installment defaulted?'}
+        title={
+          capTarget?.paidAmount
+            ? t('loanDetail.capitalizeTitle')
+            : t('loanDetail.defaultInstallmentTitle')
+        }
         danger
         busy={capBusy}
-        confirmLabel={capTarget?.paidAmount ? 'Capitalize' : 'Default'}
+        confirmLabel={capTarget?.paidAmount ? t('loanDetail.capitalize') : t('loanDetail.default')}
         message={
-          capTarget ? (
-            <>
-              The unpaid amount of{' '}
-              <strong>{formatCurrency(capTarget.remaining)}</strong> on installment #
-              {capTarget.sequence} will be added to the outstanding principal, and the remaining
-              installments will be re-amortized (interest recomputed). This cannot be undone.
-            </>
-          ) : (
-            ''
-          )
+          capTarget
+            ? tNode('loanDetail.capitalizeMessage', {
+                amount: <strong>{formatCurrency(capTarget.remaining)}</strong>,
+                sequence: capTarget.sequence,
+              })
+            : ''
         }
         onConfirm={confirmCapitalize}
         onCancel={() => setCapTarget(null)}
@@ -470,21 +503,21 @@ export function LoanDetailPage() {
 
       <ConfirmDialog
         open={defaultLoanOpen}
-        title="Mark loan as defaulted?"
+        title={t('loanDetail.defaultLoanTitle')}
         danger
         busy={defaultBusy}
-        confirmLabel="Mark Defaulted"
-        message="This closes the loan as defaulted. Outstanding installments will no longer be collectible through the normal flow."
+        confirmLabel={t('loanDetail.defaultLoanConfirm')}
+        message={t('loanDetail.defaultLoanMessage')}
         onConfirm={confirmDefaultLoan}
         onCancel={() => setDefaultLoanOpen(false)}
       />
 
       <ConfirmDialog
         open={deleteOpen}
-        title="Delete loan?"
+        title={t('loanDetail.deleteLoanTitle')}
         danger
-        confirmLabel="Delete"
-        message="This permanently removes the loan, its schedule and payments. This cannot be undone."
+        confirmLabel={t('common.delete')}
+        message={t('loanDetail.deleteLoanMessage')}
         onConfirm={confirmDelete}
         onCancel={() => setDeleteOpen(false)}
       />

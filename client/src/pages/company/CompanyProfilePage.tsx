@@ -51,6 +51,7 @@ export function CompanyProfilePage() {
       });
       toast.success('Company profile saved');
       reload();
+      window.dispatchEvent(new Event('company:updated'));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -66,6 +67,7 @@ export function CompanyProfilePage() {
       toast.success('Logo updated');
       if (logoRef.current) logoRef.current.value = '';
       reload();
+      window.dispatchEvent(new Event('company:updated'));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Upload failed');
     } finally {

@@ -1,6 +1,7 @@
 import type { Installment, Loan, LoanFrequency, Prisma } from '@prisma/client';
 import {
   generateSchedule,
+  parseISODate,
   reamortizeRemaining,
   round2,
   toISODate,
@@ -224,10 +225,14 @@ export interface RecordPaymentInput {
 
 type TxClient = Prisma.TransactionClient;
 
+/** An installment that can still take money: not defaulted and not fully paid. */
+function isOpenInstallment(i: Installment) {
+  return i.status !== 'DEFAULTED' && round2(i.amountDue - i.paidAmount) > 0.005;
+}
+
 /**
- * Apply a single payment's amount across a loan's open installments (in
- * sequence order, starting from the chosen installment or the first open
- * one). Partial payments and overpayments are supported; leftover money
+ * Apply a single payment's amount across a loan's open installments, always
+ * in sequence order starting from the oldest open one. Partial payments and overpayments are supported; leftover money
  * after the last installment is credited onto the final installment
  * (reducing outstanding). This is the shared core used both when recording a
  * brand-new payment and when replaying a loan's payment history after an
@@ -236,26 +241,18 @@ type TxClient = Prisma.TransactionClient;
 async function applyPaymentAllocation(
   tx: TxClient,
   loanId: string,
-  input: { installmentId?: string | null; amount: number; date: Date },
+  input: { amount: number; date: Date },
 ) {
   const schedule = await tx.installment.findMany({
     where: { loanId },
     orderBy: { sequence: 'asc' },
   });
 
-  const open = schedule.filter(
-    (i) => i.status !== 'DEFAULTED' && round2(i.amountDue - i.paidAmount) > 0.005,
-  );
-  let startIdx = 0;
-  if (input.installmentId) {
-    const idx = open.findIndex((i) => i.id === input.installmentId);
-    startIdx = idx >= 0 ? idx : 0;
-  }
-
+  const open = schedule.filter(isOpenInstallment);
   let remaining = round2(input.amount);
   const updates: { id: string; paidAmount: number; status: Installment['status']; paidDate: Date | null }[] = [];
 
-  for (let i = startIdx; i < open.length && remaining > 0.005; i++) {
+  for (let i = 0; i < open.length && remaining > 0.005; i++) {
     const inst = open[i];
     const capacity = round2(inst.amountDue - inst.paidAmount);
     const apply = Math.min(remaining, capacity);
@@ -296,7 +293,7 @@ async function applyPaymentAllocation(
     });
   }
 
-  return { primaryInstallmentId: input.installmentId ?? open[startIdx]?.id ?? null };
+  return { primaryInstallmentId: open[0]?.id ?? null };
 }
 
 /** Recompute a loan's status once its payments have been reset/replayed. */
@@ -339,7 +336,6 @@ async function replayLoanPayments(tx: TxClient, loanId: string) {
 
   for (const p of payments) {
     await applyPaymentAllocation(tx, loanId, {
-      installmentId: p.installmentId,
       amount: p.amount,
       date: p.date,
     });
@@ -357,7 +353,8 @@ function assertPaymentDateAllowed(disbursementDate: Date, payDate: Date) {
 
 /**
  * Record a collection. The amount is allocated across open installments in
- * sequence order (starting from the chosen installment, or the first open one).
+ * sequence order, oldest first. If the caller names an installment it must be
+ * the oldest open one — collectors can't skip ahead of an earlier due.
  * Partial payments and overpayments are supported; leftover money after the last
  * installment is credited onto the final installment (reducing outstanding).
  */
@@ -367,8 +364,20 @@ export async function recordPayment(input: RecordPaymentInput) {
     const loan = await tx.loan.findUniqueOrThrow({ where: { id: input.loanId } });
     assertPaymentDateAllowed(loan.disbursementDate, payDate);
 
+    if (input.installmentId) {
+      const schedule = await tx.installment.findMany({
+        where: { loanId: loan.id },
+        orderBy: { sequence: 'asc' },
+      });
+      const firstOpen = schedule.find(isOpenInstallment);
+      if (firstOpen && firstOpen.id !== input.installmentId) {
+        throw new Error(
+          `Installments must be collected in order — collect installment #${firstOpen.sequence} first`,
+        );
+      }
+    }
+
     const { primaryInstallmentId } = await applyPaymentAllocation(tx, loan.id, {
-      installmentId: input.installmentId,
       amount: input.amount,
       date: payDate,
     });
@@ -589,26 +598,27 @@ export function computeSettlement(
 }
 
 /**
- * Settle (pre-close) a loan: record a single settlement payment for the quoted
- * amount, mark all open installments PAID, and close the loan.
+ * Settle (pre-close) a loan as of `opts.date`: record a single settlement
+ * payment for the amount quoted on that date, mark all open installments PAID,
+ * and close the loan.
  */
 export async function settleLoan(
   loanId: string,
   opts: { date: string; mode?: DisbursementMode },
 ) {
-  const ref = today();
+  const payDate = parseISODate(opts.date);
   return prisma.$transaction(async (tx) => {
     const loan = await tx.loan.findUniqueOrThrow({
       where: { id: loanId },
       include: { schedule: { orderBy: { sequence: 'asc' } } },
     });
     if (loan.status !== 'ACTIVE') throw new Error('Only active loans can be settled');
+    assertPaymentDateAllowed(loan.disbursementDate, payDate);
 
     const settings = await getSettingsMap();
-    const quote = computeSettlement(loan, settings, ref);
+    const quote = computeSettlement(loan, settings, payDate);
     if (quote.settlementAmount <= 0.005) throw new Error('Nothing outstanding to settle');
 
-    const payDate = new Date(opts.date);
     const payment = await tx.payment.create({
       data: {
         loanId: loan.id,

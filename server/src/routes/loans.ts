@@ -2,7 +2,7 @@ import { Router } from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { z } from 'zod';
-import { generateSchedule } from '@loan/shared';
+import { generateSchedule, parseISODate } from '@loan/shared';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import {
@@ -185,21 +185,24 @@ router.post(
   }),
 );
 
-// Early-settlement (foreclosure) quote.
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
+
+// Early-settlement (foreclosure) quote, as of `?date=YYYY-MM-DD` (default: today).
 router.get(
   '/:id/settlement',
   asyncHandler(async (req, res) => {
+    const date = isoDate.optional().parse(req.query.date || undefined);
     const settings = await getSettingsMap();
     const loan = await prisma.loan.findUniqueOrThrow({
       where: { id: req.params.id },
       include: { schedule: { orderBy: { sequence: 'asc' } } },
     });
-    res.json(computeSettlement(loan, settings, today()));
+    res.json(computeSettlement(loan, settings, date ? parseISODate(date) : today()));
   }),
 );
 
 const settleSchema = z.object({
-  date: z.string().min(1),
+  date: isoDate,
   mode: z.enum(['CASH', 'UPI', 'BANK', 'CHEQUE', 'OTHER']).optional(),
 });
 

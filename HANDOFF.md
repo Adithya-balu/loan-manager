@@ -1,6 +1,6 @@
 # Handoff — Loan Manager
 
-Last updated: 2026-10-08
+Last updated: 2026-10-08 (second pass)
 
 This document captures the current state of the project, what is done, what is
 not, and the gotchas you need to know to keep working on it. For setup and usage
@@ -27,7 +27,7 @@ see [README.md](README.md).
 - **Dev servers:** `npm run dev` from the repo root. Server scripts now load
   `server/.env` (`tsx watch --env-file=.env`). API: http://localhost:4000,
   client: http://localhost:5173 (Vite falls back to 5174+ if occupied).
-- **Not done:** the follow-ups listed under "Next session" below, plus
+- **Not done:** Tamil for the remaining pages (see "Next session"), plus
   client tests, CI, and deployment.
 
 ---
@@ -101,9 +101,9 @@ Migration: `server/prisma/migrations/20261007000000_features/migration.sql`
 
 - Customer form/detail: photo, Aadhaar, location, 10/12-digit validation.
 - Loan form: "+ New" customer modal (`CustomerQuickCreate`), disbursement
-  mode, optional guarantor fields (always visible today — see follow-up #3).
+  mode, optional guarantor fields (collapsed behind a toggle).
 - Loan detail: documents card, guarantor/disbursement, "Pre-close / Settle"
-  in the page header (see follow-up #7).
+  on the Repayment Schedule card header.
 - Dashboard: Revenue line chart (last 6 months).
 - Reports (`/reports`): Collection, Outstanding, Customer statement, Revenue.
 - Company (`/company`, ADMIN): name/logo/address/phone/email.
@@ -113,101 +113,49 @@ Migration: `server/prisma/migrations/20261007000000_features/migration.sql`
 
 ---
 
-## Next session (found while using the app)
+## Follow-ups completed (2026-10-08, second pass)
 
-These are the remaining items from review. Implement in roughly this order.
+| # | Item | Where |
+| --- | --- | --- |
+| 1 | Sidebar refreshes after Company save / logo upload (`company:updated` window event). Logo filenames are unique per upload, so no cache-busting needed. | `CompanyProfilePage`, `Layout` |
+| 3 | Guarantor block collapsed by default ("Add guarantor details"); starts expanded when editing a loan that already has guarantor data. | `LoanFormPage` |
+| 4 | Loans list has a frequency filter (All / Daily / Weekly / Monthly), client-side. | `LoansListPage` |
+| 5 | Prisma `P2002` mapped in the central error handler → **409** `"Customer number already exists"` / `"A user with that email already exists"`. Strings live in `@loan/shared` (`DUPLICATE_CUSTOMER_NUMBER`, `DUPLICATE_USER_EMAIL`); the customer form shows it inline on the field. | `server/src/index.ts`, `shared/src/types.ts`, `CustomerFormPage` |
+| 7 | "Pre-close / Settle" moved to the Repayment Schedule card header (ACTIVE only). | `LoanDetailPage` |
+| 8 | `GET /loans/:id/settlement?date=YYYY-MM-DD`; modal re-quotes 300 ms after the date changes; confirm sends `quote.asOf`. `settleLoan` now computes the quote **as of the settlement date** (not server today) and rejects dates before disbursement. | `routes/loans.ts`, `loanService.ts`, `SettlementModal` |
+| 10 | Allocation always starts at the oldest open installment (also on replay after edit/delete). `recordPayment` rejects an `installmentId` that is not the oldest open one (400, "collect installment #N first"). UI disables Collect on later installments with a hint; Today's Collection items carry `blockedBySequence` so this works even when the overdue row is hidden. | `loanService.ts`, `routes/actions.ts`, `LoanDetailPage`, `TodayCollectionPage` |
+| 2 | **Tamil — first slice.** See below. | `client/src/i18n/*` |
 
-### 1. Refresh on saving the Company Profile
+### Tamil (i18n) — what exists and what's left
 
-`CompanyProfilePage` calls `reload()` after save/logo upload, so the **form**
-updates. The **sidebar** does not: `Layout` loads company once via
-`useApi(() => api.getCompany(), [])` and never hears about the save.
+- `client/src/i18n/en.ts` is the source dictionary (flat keys, `{placeholder}`
+  interpolation). `ta.ts` is typed `Record<MessageKey, string>`, so a missing
+  Tamil key fails `tsc`.
+- `I18nProvider` / `useI18n()` → `t(key, vars)` and `tNode(key, vars)` (for
+  placeholders that are React nodes, e.g. a bold amount). Language persisted
+  in `localStorage` (`lm_lang`), sets `<html lang>`. Switcher is in the
+  sidebar footer (replaced the static "INR · en-IN" label).
+- Translated: sidebar/nav, login, dashboard, loan form, loan detail, and the
+  shared UI kit (status/risk badges, loading/retry, confirm dialog buttons).
+- **Not yet translated:** customers (list/detail/form/quick-create), loans
+  list, repayments, Today's Collection, Action Required, reports, company,
+  account, settings, Payment/Settlement modals, `FREQUENCY_LABEL` in
+  untranslated pages. Server error messages are still English.
+- Numbers/currency stay `en-IN`; only the dashboard month labels switch to
+  `ta-IN`. Customer-entered data is never translated.
+- The Tamil copy was machine-authored — **have a native speaker review
+  `ta.ts`** (especially financial terms: அசல், நிலுவை, ஜாமீன்தாரர், தவறியது).
 
-Fix options (pick one):
+## Next session
 
-- Lift company into a small `CompanyContext` (same pattern as `AuthContext`)
-  and have the profile page write into it after save.
-- Or dispatch a window event (`company:updated`) that `Layout` listens for
-  and re-fetches.
+1. Finish Tamil across the remaining pages (list above).
+2. Older backlog below.
 
-Also worth checking: after a logo upload the sidebar `<img src={logoUrl}>`
-may stay cached if the URL does not change. Bust with `?t=updatedAt` if needed.
-
-### 2. Tamil language support
-
-Not started. App copy is hardcoded English. Suggested approach:
-
-- Add a small `i18n` context (`en` | `ta`) persisted in `localStorage`.
-- Extract user-visible strings from pages + UI kit into
-  `client/src/i18n/en.ts` and `ta.ts`.
-- Keep numbers/currency as `en-IN` / INR unless you also want Tamil
-  number formatting.
-- Do not translate customer-entered data (names, notes, document labels).
-
-Scope is large (every page). Start with nav + login + dashboard + loan
-create/detail if you want a first slice.
-
-### 3. Hide guarantor fields behind a toggle
-
-On `LoanFormPage` the guarantor block is always expanded. Default it
-**collapsed**. Show the four fields only when the user opens "Add guarantor
-details". If any guarantor field is already filled (edit flow), start
-expanded.
-
-### 4. Loans page — filter by type
-
-`LoansListPage` filters by **status** and customer search only. Add a
-frequency filter (`DAILY` / `WEEKLY` / `MONTHLY` / All) next to the status
-`<Select>`. Client-side is enough; `listLoans()` already returns `frequency`.
-
-### 5. Unique customer number error handling
-
-`Customer.customerNumber` is `@unique`. Creating/updating with a duplicate
-throws a raw Prisma unique-constraint error that surfaces as a generic 400
-toast. Catch `P2002` in the customers route (or the central error handler)
-and return a clear `"Customer number already exists"` (and the same for
-email on users). Mirror that string in the customer form.
-
-### 7. Move Pre-close / Settle onto the Repayment Schedule
-
-The button currently lives in the `PageHeader` actions on `LoanDetailPage`.
-Put it on the **Repayment Schedule** card header (or as a row under the
-schedule totals) so it sits with the numbers it acts on. Keep it visible
-only while `status === 'ACTIVE'`.
-
-### 8. Recalculate pre-close / settle when the date changes
-
-**Yes.** Today `GET /loans/:id/settlement` always uses server `today()`.
-The date field in `SettlementModal` is only sent on **confirm**, so
-changing it does not change the quote (interest-to-date depends on the
-as-of date).
-
-Do this:
-
-- Change `GET /loans/:id/settlement?date=YYYY-MM-DD` (or POST a quote
-  endpoint) and pass that date into `computeSettlement(..., ref)`.
-- In the modal, refetch the quote whenever `date` changes (debounce ~300ms).
-- Keep confirm using the same date that produced the displayed quote.
-
-### 9. Delete / edit repayment — already on `master` (pre-rebase)
-
-`PUT /payments/:id` and `DELETE /payments/:id` plus loan-detail / payments
-list UI landed in `fae7df0` before this rebase. Treat this item as **done**
-unless you find a remaining edge case (e.g. editing a payment that is not
-the latest, or settlement payments).
-
-### 10. Repayments should be collected in order
-
-`recordPayment` can start at a caller-chosen `installmentId`, which lets a
-collector skip an older open installment. Product intent: always allocate
-from the **oldest open** installment.
-
-- Ignore `installmentId` for allocation order (or reject if it is not the
-  first open one).
-- On Today's Collection / loan schedule, disable **Collect** on later
-  installments while an earlier one is still open (show a hint).
-- Settlement / foreclosure stays a separate path and may close everything
-  at once.
+Verified this pass: client + server `tsc`, `npm run build`, `npm test`
+(12 pass); API smoke tests for duplicate customer number (409), settlement
+quote by date + invalid date (400), out-of-order payment rejected (400),
+in-order payment accepted, `blockedBySequence` on Today's Collection. UI
+changes were type-checked and built but **not clicked through in a browser**.
 
 ---
 
@@ -289,8 +237,11 @@ Demo data was reseeded after the settlement smoke test.
 8. **Compiled `npm start` path** is `dist/src/index.js` (not `dist/index.js`).
    Running the built server also needs `@loan/shared` resolved; prefer
    `npm run dev` (`tsx`) for local work.
-9. **Settlement quote ignores the modal date** until follow-up #8 is done.
-10. **Customer number uniqueness** is a raw Prisma error until follow-up #5.
+9. **`npm install` after pulling.** `@vercel/blob` is a declared dependency
+   (client + server); `tsc` fails with "Cannot find module '@vercel/blob'" if
+   `node_modules` predates the Vercel commit.
+10. **Payment order is enforced.** A client sending a later `installmentId`
+    gets a 400; omit `installmentId` to just allocate oldest-first.
 
 ---
 
@@ -300,8 +251,8 @@ Demo data was reseeded after the settlement smoke test.
 - Penalty model = **capitalize unpaid amount into principal + re-amortize**
   the remaining installments (same count). No separate late-fee entity.
 - Payments are a **free-amount ledger**, auto-allocated to open installments;
-  overpayment credits the final open installment. Follow-up #10 will force
-  oldest-first order.
+  overpayment credits the final open installment. Allocation is always
+  oldest-open-first.
 - Grace + default thresholds measured in **days**, per loan type, overridable
   per loan.
 - All default/capitalization actions are **user-triggered** from Action

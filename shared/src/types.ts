@@ -29,6 +29,10 @@ export const LOAN_FREQUENCIES: LoanFrequency[] = ['DAILY', 'WEEKLY', 'MONTHLY'];
 export const INTEREST_METHODS: InterestMethod[] = ['FLAT', 'REDUCING'];
 export const PAYMENT_MODES: PaymentMode[] = ['CASH', 'UPI', 'BANK', 'CHEQUE', 'OTHER'];
 
+/** Error messages the API returns for unique-constraint violations (shared so forms can match them). */
+export const DUPLICATE_CUSTOMER_NUMBER = 'Customer number already exists';
+export const DUPLICATE_USER_EMAIL = 'A user with that email already exists';
+
 /** System-wide, per-loan-type configuration (overridable per loan). */
 export interface LoanTypeConfig {
   frequency: LoanFrequency;

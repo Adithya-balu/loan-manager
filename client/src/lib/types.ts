@@ -137,6 +137,8 @@ export interface CollectionItem {
   daysPastDue: number;
   frequency: LoanFrequency;
   actionRequired: boolean;
+  /** Sequence of an earlier open installment that must be collected first, if any. */
+  blockedBySequence: number | null;
 }
 
 export interface TodayCollectionResponse {
