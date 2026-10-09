@@ -603,16 +603,21 @@ export function computeSettlement(
   const refDay = dateOnly(ref);
   let overdueDue = 0;
   let remainingPrincipal = 0;
-  let lastDueOnOrBefore: Date | null = null;
+
+  // Interest up to the latest due date is already part of the scheduled
+  // installments (paid or not), so interest-to-date runs from that date — from
+  // every installment that has fallen due, not just unpaid ones, or a borrower
+  // who paid on time would be charged that period's interest twice.
+  const pastDues = loan.schedule
+    .map((i) => dateOnly(i.dueDate).getTime())
+    .filter((t) => t <= refDay.getTime());
+  const lastDueOnOrBefore = pastDues.length ? new Date(Math.max(...pastDues)) : null;
 
   for (const inst of open) {
     const due = dateOnly(inst.dueDate);
     if (due.getTime() <= refDay.getTime()) {
       // Matured installment: whole remaining amount (principal + its interest) is owed.
       overdueDue = round2(overdueDue + inst.remaining);
-      if (!lastDueOnOrBefore || due.getTime() > lastDueOnOrBefore.getTime()) {
-        lastDueOnOrBefore = due;
-      }
     } else {
       // Future installment: only the unpaid principal slice is owed on early settlement.
       const paidTowardPrincipal = Math.max(0, inst.paidAmount - inst.interestComponent);

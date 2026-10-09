@@ -1,6 +1,6 @@
 # Handoff — Loan Manager
 
-Last updated: 2026-10-09 (test-findings fixes)
+Last updated: 2026-10-10 (loan life-cycle test suite)
 
 This document captures the current state of the project, what is done, what is
 not, and the gotchas you need to know to keep working on it. For setup and usage
@@ -190,6 +190,34 @@ Migration `20261009000000_settlement_accounting` adds `Payment.kind`,
 settlement payments. Settlements recorded **before** this migration still
 have `waivedAmount = 0`, so their waived interest still counts as earned; re-settle
 (undo + settle) them if exact historical revenue matters.
+
+## Loan calculation & life-cycle test suite (2026-10-10)
+
+Two calculation bugs were found and fixed while writing these tests:
+
+1. **Schedule rounding** (`shared/src/finance.ts`). Rounding one equal slice
+   and letting the last installment absorb the residual made the last row's
+   interest **negative** on small daily/weekly loans (e.g. ₹1,000 daily at 12%
+   for 365 days) and left reducing-balance loans with a lopsided final
+   installment. Slices are now spread by running totals (`spreadEvenly`), and
+   reducing schedules round along the exact amortization path: every
+   installment is within a paisa of the exact figure, nothing is negative, and
+   totals reconcile exactly. Installments may now differ by one paisa (e.g.
+   9,333.33 / 9,333.34). Schedules already stored are unchanged.
+2. **Settlement interest start** (`computeSettlement`). Interest-to-date was
+   counted from disbursement whenever the latest due installment had been
+   **paid**, double-charging that period (paying on time made settling dearer
+   than settling in arrears). It now runs from the latest due date, paid or not.
+
+| Layer | File | Covers |
+| --- | --- | --- |
+| Finance engine | `shared/src/schedule.test.ts` | Hand-computed flat & EMI examples (₹1L @ 12% → EMI 8,884.88, interest 6,618.55; weekly/daily T), 0% and single-installment loans, invariants over a 4,704-combination matrix (reconciles to the paisa, no negatives, level installments), re-amortization |
+| | `shared/src/dates-money.test.ts` | Month-end clamping, leap years, year rollover, daily/weekly/monthly due dates, `round2`, INR formatting |
+| | `shared/src/risk.test.ts` | Risk weights against a hand calculation, each factor, clamping, band thresholds |
+| Server math (no DB) | `server/test/lifecycleMath.test.ts` | Installment status at every boundary, grace/threshold edges and overrides (incl. 0), roll-ups (cash vs waived, defaulted exclusion, overpayment), default eligibility, settlement quotes (interest-first partials, anchors, dates) |
+| Life-cycle journeys (API) | `server/test/lifecycle.test.ts` | On-time EMI payoff → CLOSED + LOW risk; partial/late/overpayment; missed installment → capitalization → re-amortization → recovery; default/write-off; settlement (current and in arrears) + undo; payment-history corrections; grace settings; multi-loan customer totals. Every step reconciles the ledger. |
+| | `server/test/{payments,accounting,rules,collections,settlement,…}.test.ts` | Allocation, replay, settlement accounting, server rules, errors, uploads |
+| Client | `client/src/pages/loans/LoanFormPage.test.tsx` and others | Live schedule preview with the real engine, submit payload, guarantor toggle, locked terms; plus page gates from earlier passes |
 
 ## Next session
 
