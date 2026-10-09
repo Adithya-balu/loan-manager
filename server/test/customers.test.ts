@@ -61,3 +61,30 @@ describe('customer lifecycle', () => {
     expect((await admin.get(res.body.photoUrl)).status).toBe(200);
   });
 });
+
+describe('automatic customer numbers (#3)', () => {
+  it('stay unique after an earlier customer is deleted', async () => {
+    const created = [];
+    for (let i = 0; i < 3; i++) {
+      created.push((await admin.post('/api/customers').send({ name: `Auto ${i}`, mobile: String(9811100000 + i) })).body);
+    }
+    expect((await admin.delete(`/api/customers/${created[0].id}`)).status).toBe(204);
+    const next = await admin.post('/api/customers').send({ name: 'After delete', mobile: '9811100009' });
+    expect(next.status).toBe(201);
+    const numbers = (await admin.get('/api/customers')).body.map((c: { customerNumber: string }) => c.customerNumber);
+    expect(new Set(numbers).size).toBe(numbers.length);
+  });
+
+  it('continue after the highest C-number, even one typed by hand', async () => {
+    await admin.post('/api/customers').send({ name: 'Manual', mobile: '9811100010', customerNumber: 'C0500' });
+    const next = await admin.post('/api/customers').send({ name: 'Next', mobile: '9811100011' });
+    expect(next.body.customerNumber).toBe('C0501');
+  });
+
+  it('ignore non-numeric custom numbers', async () => {
+    await admin.post('/api/customers').send({ name: 'Custom', mobile: '9811100012', customerNumber: 'CHENNAI-7' });
+    const next = await admin.post('/api/customers').send({ name: 'Next', mobile: '9811100013' });
+    expect(next.status).toBe(201);
+    expect(next.body.customerNumber).toMatch(/^C\d{4,}$/);
+  });
+});

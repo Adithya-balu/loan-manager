@@ -162,6 +162,8 @@ export interface InstallmentAction {
   graceDays: number;
   kind: 'PARTIAL' | 'DEFAULT';
   frequency: LoanFrequency;
+  /** Sequence of an earlier open installment that must be collected first, if any. */
+  blockedBySequence: number | null;
 }
 
 export interface LoanAction {

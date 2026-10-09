@@ -78,3 +78,23 @@ describe('allocation', () => {
     expect((await admin.get(`/api/payments?customerId=${customerId}`)).body).toHaveLength(1);
   });
 });
+
+describe('long loans', () => {
+  it('replays 100 payments on a 200-installment daily loan quickly and correctly', async () => {
+    const L = await createLoan(admin, customerId, {
+      principal: 20000, annualRatePct: 0, frequency: 'DAILY', installments: 200,
+      disbursementDate: iso(-150), repaymentStartDate: iso(-140),
+    });
+    const ids: string[] = [];
+    for (let i = 0; i < 100; i++) ids.push((await pay(admin, L.id, 100, iso(-139 + i))).body.id);
+    expect(paidAmounts(await getLoan(admin, L.id)).filter((x) => x === 100)).toHaveLength(100);
+
+    const started = Date.now();
+    expect((await admin.delete(`/api/payments/${ids[0]}`)).status).toBe(204);
+    expect(Date.now() - started).toBeLessThan(3000);
+    const d = await getLoan(admin, L.id);
+    expect(d.rollup.totalPaid).toBeCloseTo(9900);
+    expect(paidAmounts(d).slice(0, 99).every((x) => x === 100)).toBe(true);
+    expect(paidAmounts(d)[99]).toBe(0);
+  }, 60000);
+});

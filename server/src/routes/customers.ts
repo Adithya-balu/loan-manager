@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { del, get } from '@vercel/blob';
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../db.js';
 import { asyncHandler } from '../lib/http.js';
 import { computeCustomerRisk } from '../lib/riskService.js';
@@ -37,10 +38,26 @@ const customerSchema = z.object({
   location: z.string().optional().nullable(),
 });
 
+/**
+ * Next automatic number: one past the highest existing `C<digits>` number.
+ * (Counting rows collides as soon as any customer has been deleted.)
+ */
 async function nextCustomerNumber(): Promise<string> {
-  const count = await prisma.customer.count();
-  return `C${String(count + 1).padStart(4, '0')}`;
+  const rows = await prisma.customer.findMany({
+    where: { customerNumber: { startsWith: 'C' } },
+    select: { customerNumber: true },
+  });
+  const highest = rows.reduce((max, r) => {
+    const m = /^C(\d+)$/.exec(r.customerNumber);
+    return m ? Math.max(max, Number(m[1])) : max;
+  }, 0);
+  return `C${String(highest + 1).padStart(4, '0')}`;
 }
+
+const isDuplicateNumber = (err: unknown) =>
+  err instanceof Prisma.PrismaClientKnownRequestError &&
+  err.code === 'P2002' &&
+  String(err.meta?.target ?? '').includes('customerNumber');
 
 // List customers with risk + portfolio summary.
 router.get(
@@ -124,20 +141,33 @@ router.post(
   '/',
   asyncHandler(async (req, res) => {
     const data = customerSchema.parse(req.body);
-    const customerNumber = data.customerNumber?.trim() || (await nextCustomerNumber());
-    const customer = await prisma.customer.create({
-      data: {
-        customerNumber,
-        name: data.name,
-        mobile: data.mobile,
-        email: data.email || null,
-        address: data.address || null,
-        aadhaar: data.aadhaar || null,
-        location: data.location || null,
-      },
-      include: { documents: true },
-    });
-    res.status(201).json(customer);
+    const manual = data.customerNumber?.trim();
+    const create = (customerNumber: string) =>
+      prisma.customer.create({
+        data: {
+          customerNumber,
+          name: data.name,
+          mobile: data.mobile,
+          email: data.email || null,
+          address: data.address || null,
+          aadhaar: data.aadhaar || null,
+          location: data.location || null,
+        },
+        include: { documents: true },
+      });
+    if (manual) {
+      res.status(201).json(await create(manual));
+      return;
+    }
+    // Two simultaneous creates can pick the same automatic number; retry a few times.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        res.status(201).json(await create(await nextCustomerNumber()));
+        return;
+      } catch (err) {
+        if (!isDuplicateNumber(err) || attempt >= 4) throw err;
+      }
+    }
   }),
 );
 

@@ -59,6 +59,11 @@ describe('change password', () => {
     await admin.post('/api/auth/users').send({ name: 'Pw', email: 'pw@x.com', password: 'password1', role: 'AGENT' });
     const user = await login({ email: 'pw@x.com', password: 'password1' });
     expect((await user.post('/api/auth/change-password').send({ currentPassword: 'password1', newPassword: 'short' })).status).toBe(400);
+    // A wrong current password is a validation error, not an expired session (#4).
+    const wrong = await user.post('/api/auth/change-password').send({ currentPassword: 'nope', newPassword: 'newpass123' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error).toBe('Current password is incorrect');
+    expect((await user.get('/api/auth/me')).status).toBe(200);
     expect((await user.post('/api/auth/change-password').send({ currentPassword: 'password1', newPassword: 'newpass123' })).status).toBe(200);
     expect((await request(app).post('/api/auth/login').send({ email: 'pw@x.com', password: 'password1' })).status).toBe(401);
   });

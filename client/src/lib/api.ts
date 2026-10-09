@@ -55,7 +55,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       // non-JSON error body; keep the default message.
     }
-    if (res.status === 401 && path !== '/auth/login' && path !== '/auth/me') {
+    // A 401 elsewhere means the session expired. Login/me report it themselves, and
+    // change-password's "wrong current password" must not log the user out.
+    const sessionCheckExempt = ['/auth/login', '/auth/me', '/auth/change-password'];
+    if (res.status === 401 && !sessionCheckExempt.includes(path)) {
       window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     }
     throw new ApiError(message, res.status);

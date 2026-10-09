@@ -248,83 +248,65 @@ function isOpenInstallment(i: Installment) {
  * sequence order starting from the oldest one with capacity left. Partial
  * payments and overpayments are supported; leftover money after the last
  * installment is credited onto the final regular installment (reducing
- * outstanding). This is the shared core used both when recording a brand-new
- * payment and when replaying a loan's payment history after an edit/delete
- * (see `replayLoanPayments`).
+ * outstanding). Works on an in-memory schedule (mutated in place) so a full
+ * replay costs one read and one write per installment rather than several
+ * queries per payment. Returns the installment the payment starts on.
  */
-async function applyPaymentAllocation(
-  tx: TxClient,
-  loanId: string,
-  input: { amount: number; date: Date },
-) {
-  const schedule = await tx.installment.findMany({
-    where: { loanId },
-    orderBy: { sequence: 'asc' },
-  });
-
+function allocatePayment(schedule: Installment[], amount: number, date: Date): string | null {
   const open = schedule.filter((i) => capacityOf(i) > 0.005);
-  let remaining = round2(input.amount);
-  const updates: { id: string; paidAmount: number; status: Installment['status']; paidDate: Date | null }[] = [];
+  const regularOpen = open.filter((i) => i.status !== 'DEFAULTED');
+  let remaining = round2(amount);
 
   for (let i = 0; i < open.length && remaining > 0.005; i++) {
     const inst = open[i];
     const apply = Math.min(remaining, capacityOf(inst));
-    const newPaid = round2(inst.paidAmount + apply);
+    inst.paidAmount = round2(inst.paidAmount + apply);
     remaining = round2(remaining - apply);
-    if (inst.status === 'DEFAULTED') {
-      updates.push({ id: inst.id, paidAmount: newPaid, status: 'DEFAULTED', paidDate: inst.paidDate });
-      continue;
-    }
-    const fullyPaid = newPaid >= round2(inst.amountDue) - 0.005;
-    updates.push({
-      id: inst.id,
-      paidAmount: newPaid,
-      status: fullyPaid ? 'PAID' : 'PARTIAL',
-      paidDate: fullyPaid ? input.date : inst.paidDate,
-    });
+    if (inst.status === 'DEFAULTED') continue;
+    const fullyPaid = inst.paidAmount >= round2(inst.amountDue) - 0.005;
+    inst.status = fullyPaid ? 'PAID' : 'PARTIAL';
+    if (fullyPaid) inst.paidDate ??= date;
   }
 
   // Leftover overpayment → credit the final open regular installment (reduces outstanding).
-  const regularOpen = open.filter((i) => i.status !== 'DEFAULTED');
   if (remaining > 0.005 && regularOpen.length > 0) {
     const last = regularOpen[regularOpen.length - 1];
-    const existing = updates.find((u) => u.id === last.id);
-    if (existing) {
-      existing.paidAmount = round2(existing.paidAmount + remaining);
-      existing.status = 'PAID';
-      existing.paidDate = existing.paidDate ?? input.date;
-    } else {
-      updates.push({
-        id: last.id,
-        paidAmount: round2(last.paidAmount + remaining),
-        status: 'PAID',
-        paidDate: input.date,
-      });
-    }
-    remaining = 0;
+    last.paidAmount = round2(last.paidAmount + remaining);
+    last.status = 'PAID';
+    last.paidDate ??= date;
   }
 
-  for (const u of updates) {
+  return regularOpen[0]?.id ?? null;
+}
+
+/** Persist installments whose allocation fields differ from `before`. */
+async function saveAllocation(tx: TxClient, before: Installment[], after: Installment[]) {
+  const prev = new Map(before.map((i) => [i.id, i]));
+  for (const inst of after) {
+    const old = prev.get(inst.id);
+    if (
+      old &&
+      old.paidAmount === inst.paidAmount &&
+      old.status === inst.status &&
+      old.waivedAmount === inst.waivedAmount &&
+      old.paidDate?.getTime() === inst.paidDate?.getTime()
+    ) {
+      continue;
+    }
     await tx.installment.update({
-      where: { id: u.id },
-      data: { paidAmount: u.paidAmount, status: u.status, paidDate: u.paidDate },
+      where: { id: inst.id },
+      data: {
+        paidAmount: inst.paidAmount,
+        status: inst.status,
+        paidDate: inst.paidDate,
+        waivedAmount: inst.waivedAmount,
+      },
     });
   }
-
-  return { primaryInstallmentId: regularOpen[0]?.id ?? null };
 }
 
-/** Recompute a loan's status once its payments have been reset/replayed. */
-async function syncLoanStatusAfterReplay(tx: TxClient, loanId: string, currentStatus: Loan['status']) {
-  if (currentStatus === 'DEFAULTED') return;
-  const refreshed = await tx.installment.findMany({ where: { loanId } });
-  const allSettled = refreshed.every((i) => i.status === 'PAID' || i.status === 'DEFAULTED');
-  if (allSettled && currentStatus !== 'CLOSED') {
-    await tx.loan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
-  } else if (!allSettled && currentStatus === 'CLOSED') {
-    await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE' } });
-  }
-}
+const allSettled = (schedule: Installment[]) =>
+  schedule.every((i) => i.status === 'PAID' || i.status === 'DEFAULTED');
 
 /**
  * Rebuild every installment's paid amount from scratch by replaying the
@@ -345,41 +327,35 @@ async function replayLoanPayments(tx: TxClient, loanId: string) {
     where: { id: loanId },
     include: { schedule: { orderBy: { sequence: 'asc' } } },
   });
-
-  for (const inst of loan.schedule) {
-    await tx.installment.update({
-      where: { id: inst.id },
-      data:
-        inst.status === 'DEFAULTED'
-          ? { paidAmount: 0, waivedAmount: 0 }
-          : { paidAmount: 0, waivedAmount: 0, status: 'SCHEDULED', paidDate: null },
-    });
-  }
-
   const payments = await tx.payment.findMany({
     where: { loanId, kind: 'REGULAR' },
     orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
   });
 
-  for (const p of payments) {
-    await applyPaymentAllocation(tx, loanId, {
-      amount: p.amount,
-      date: p.date,
-    });
-  }
+  const schedule = loan.schedule.map((inst) => ({
+    ...inst,
+    paidAmount: 0,
+    waivedAmount: 0,
+    ...(inst.status === 'DEFAULTED' ? {} : { status: 'SCHEDULED' as const, paidDate: null }),
+  }));
+  for (const p of payments) allocatePayment(schedule, p.amount, p.date);
 
-  const refilled = await tx.installment.findMany({
-    where: { loanId, status: 'DEFAULTED' },
-    orderBy: { sequence: 'asc' },
-  });
-  const shortfall = refilled.find((i) => capacityOf(i) > 0.005);
+  const shortfall = schedule.find((i) => i.status === 'DEFAULTED' && capacityOf(i) > 0.005);
   if (shortfall) {
     throw new Error(
       `This change would remove money already counted in capitalized installment #${shortfall.sequence}, so it can't be made.`,
     );
   }
 
-  await syncLoanStatusAfterReplay(tx, loanId, loan.status);
+  await saveAllocation(tx, loan.schedule, schedule);
+
+  if (loan.status === 'DEFAULTED') return;
+  const settled = allSettled(schedule);
+  if (settled && loan.status !== 'CLOSED') {
+    await tx.loan.update({ where: { id: loanId }, data: { status: 'CLOSED' } });
+  } else if (!settled && loan.status === 'CLOSED') {
+    await tx.loan.update({ where: { id: loanId }, data: { status: 'ACTIVE' } });
+  }
 }
 
 /** Settled loans are frozen: only deleting the settlement itself may change their payments. */
@@ -410,12 +386,12 @@ export async function recordPayment(input: RecordPaymentInput) {
     const loan = await tx.loan.findUniqueOrThrow({ where: { id: input.loanId } });
     assertPaymentDateAllowed(loan.disbursementDate, payDate);
 
+    const before = await tx.installment.findMany({
+      where: { loanId: loan.id },
+      orderBy: { sequence: 'asc' },
+    });
     if (input.installmentId) {
-      const schedule = await tx.installment.findMany({
-        where: { loanId: loan.id },
-        orderBy: { sequence: 'asc' },
-      });
-      const firstOpen = schedule.find(isOpenInstallment);
+      const firstOpen = before.find(isOpenInstallment);
       if (firstOpen && firstOpen.id !== input.installmentId) {
         throw new Error(
           `Installments must be collected in order — collect installment #${firstOpen.sequence} first`,
@@ -423,10 +399,9 @@ export async function recordPayment(input: RecordPaymentInput) {
       }
     }
 
-    const { primaryInstallmentId } = await applyPaymentAllocation(tx, loan.id, {
-      amount: input.amount,
-      date: payDate,
-    });
+    const schedule = before.map((i) => ({ ...i }));
+    const primaryInstallmentId = allocatePayment(schedule, input.amount, payDate);
+    await saveAllocation(tx, before, schedule);
 
     const payment = await tx.payment.create({
       data: {
@@ -441,11 +416,7 @@ export async function recordPayment(input: RecordPaymentInput) {
     });
 
     // Close the loan if everything is settled.
-    const refreshed = await tx.installment.findMany({ where: { loanId: loan.id } });
-    const allSettled = refreshed.every(
-      (i) => i.status === 'PAID' || i.status === 'DEFAULTED',
-    );
-    if (allSettled && loan.status === 'ACTIVE') {
+    if (allSettled(schedule) && loan.status === 'ACTIVE') {
       await tx.loan.update({ where: { id: loan.id }, data: { status: 'CLOSED' } });
     }
 

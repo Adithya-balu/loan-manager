@@ -42,7 +42,8 @@ describe('payment replay after capitalization (#1)', () => {
     const later = (await pay(admin, loanId, 100, iso(-1))).body;
     const outstandingBefore = (await getLoan(admin, loanId)).rollup.outstanding;
 
-    expect((await admin.put(`/api/payments/${later.id}`).send({ amount: 300, date: iso(-1) })).status).toBe(200);
+    const edit = await admin.put(`/api/payments/${later.id}`).send({ amount: 300, date: iso(-1) });
+    expect(edit.status, JSON.stringify(edit.body)).toBe(200);
     const d = await getLoan(admin, loanId);
     expect(paidAmounts(d)[0]).toBe(400);
     expect(d.rollup.totalPaid).toBeCloseTo(700);

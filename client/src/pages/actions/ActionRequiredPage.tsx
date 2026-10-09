@@ -133,7 +133,17 @@ export function ActionRequiredPage() {
                       </TD>
                       <TD align="right">
                         <div className="flex items-center justify-end gap-1">
-                          <Button size="sm" variant="secondary" onClick={() => collect(a)}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => collect(a)}
+                            disabled={a.blockedBySequence !== null}
+                            title={
+                              a.blockedBySequence !== null
+                                ? `Collect installment #${a.blockedBySequence} first`
+                                : undefined
+                            }
+                          >
                             Collect
                           </Button>
                           <Button size="sm" variant="danger" onClick={() => setCapTarget(a)}>

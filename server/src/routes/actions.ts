@@ -103,8 +103,11 @@ router.get(
 
     for (const loan of loans) {
       const grace = effectiveGraceDays(loan, settings);
+      // Payments are allocated oldest-first, so only the earliest open installment is collectable.
+      let firstOpenSequence: number | null = null;
       for (const inst of loan.schedule) {
         const e = enrichInstallment(inst, grace, ref);
+        if (e.remaining > 0.005 && e.derivedStatus !== 'DEFAULTED') firstOpenSequence ??= inst.sequence;
         if (e.actionRequired) {
           installmentActions.push({
             installmentId: inst.id,
@@ -121,6 +124,8 @@ router.get(
             graceDays: grace,
             kind: inst.paidAmount > 0 ? 'PARTIAL' : 'DEFAULT',
             frequency: loan.frequency,
+            blockedBySequence:
+              firstOpenSequence !== null && firstOpenSequence < inst.sequence ? firstOpenSequence : null,
           });
         }
       }

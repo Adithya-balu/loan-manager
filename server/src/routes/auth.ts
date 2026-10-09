@@ -72,7 +72,8 @@ router.post(
     const { currentPassword, newPassword } = changePasswordSchema.parse(req.body);
     const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
     if (!user || !(await verifyPassword(currentPassword, user.passwordHash))) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
+      // 400, not 401: the session is fine, and clients treat 401 as "logged out".
+      return res.status(400).json({ error: 'Current password is incorrect' });
     }
     await prisma.user.update({
       where: { id: user.id },

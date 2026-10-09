@@ -46,6 +46,16 @@ describe('action required', () => {
     expect(res.body.total).toBe(res.body.installmentActions.length + res.body.loanActions.length);
   });
 
+  it('flags every action item except the oldest per loan as blocked (#5)', async () => {
+    const res = await admin.get('/api/action-required');
+    const acts: Item[] = res.body.installmentActions
+      .filter((a: Item) => a.loanId === loanId)
+      .sort((a: Item, b: Item) => a.sequence - b.sequence);
+    expect(acts.length).toBeGreaterThan(1);
+    expect(acts[0].blockedBySequence).toBeNull();
+    expect(acts.slice(1).every((a) => a.blockedBySequence === 1)).toBe(true);
+  });
+
   it('defaulting an overdue installment re-amortizes without changing the balance (0%)', async () => {
     const before = await getLoan(admin, loanId);
     expect((await admin.post(`/api/installments/${before.schedule[0].id}/default`)).status).toBe(200);
