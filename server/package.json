@@ -11,7 +11,9 @@
     "deploy": "prisma migrate deploy",
     "generate": "prisma generate",
     "seed": "tsx prisma/seed.ts",
-    "reset": "prisma migrate reset --force"
+    "reset": "prisma migrate reset --force",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -37,8 +39,11 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.10.2",
+    "@types/supertest": "^6.0.3",
     "embedded-postgres": "^18.4.0-beta.17",
+    "supertest": "^7.1.4",
     "tsx": "^4.19.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
   }
 }
