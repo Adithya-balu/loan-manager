@@ -4,6 +4,9 @@ export type LoanFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY';
 export type InterestMethod = 'FLAT' | 'REDUCING';
 export type LoanStatus = 'ACTIVE' | 'CLOSED' | 'DEFAULTED';
 
+/** SETTLEMENT = the single payment recorded when a loan is pre-closed. */
+export type PaymentKind = 'REGULAR' | 'SETTLEMENT';
+
 /**
  * Lifecycle of a single scheduled installment.
  * - SCHEDULED: future installment, not yet due.
@@ -134,6 +137,8 @@ export interface Installment {
   status: InstallmentStatus;
   paidDate?: string | null;
   capitalizedAmount: number;
+  /** Interest written off on early settlement (included in paidAmount, never received). */
+  waivedAmount: number;
 }
 
 export interface Payment {
@@ -145,6 +150,8 @@ export interface Payment {
   date: string;
   mode: PaymentMode;
   note?: string | null;
+  kind: PaymentKind;
+  settlementInterest?: number | null;
   createdAt: string;
 }
 

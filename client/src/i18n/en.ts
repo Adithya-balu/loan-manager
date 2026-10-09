@@ -206,6 +206,12 @@ export const en = {
   'loanDetail.colNote': 'Note',
   'loanDetail.colActions': 'Actions',
   'loanDetail.paymentSubtitle': '{name} · outstanding {amount}',
+  'loanDetail.settlementPayment': 'Settlement',
+  'loanDetail.undoSettlement': 'Undo settlement',
+  'loanDetail.undoSettlementTitle': 'Undo settlement?',
+  'loanDetail.undoSettlementMessage':
+    'This deletes the settlement payment of {amount} and reopens the loan with its original schedule. You can settle again afterwards.',
+  'loanDetail.lockedBySettlement': 'Locked — loan was settled',
   'loanDetail.paymentDeleted': 'Payment deleted',
   'loanDetail.paymentDeleteFailed': 'Failed to delete payment',
   'loanDetail.capitalizedDefaulted': 'Installment capitalized. Loan marked as defaulted.',

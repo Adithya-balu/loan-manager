@@ -209,6 +209,12 @@ export const ta: Record<MessageKey, string> = {
   'loanDetail.colNote': 'குறிப்பு',
   'loanDetail.colActions': 'செயல்கள்',
   'loanDetail.paymentSubtitle': '{name} · நிலுவை {amount}',
+  'loanDetail.settlementPayment': 'தீர்வு',
+  'loanDetail.undoSettlement': 'தீர்வை ரத்து செய்',
+  'loanDetail.undoSettlementTitle': 'தீர்வை ரத்து செய்யவா?',
+  'loanDetail.undoSettlementMessage':
+    '{amount} தீர்வுத் தொகை நீக்கப்பட்டு, கடன் அதன் அசல் அட்டவணையுடன் மீண்டும் திறக்கப்படும். பின்னர் மீண்டும் தீர்வு செய்யலாம்.',
+  'loanDetail.lockedBySettlement': 'பூட்டப்பட்டது — கடன் தீர்வு செய்யப்பட்டது',
   'loanDetail.paymentDeleted': 'செலுத்துதல் நீக்கப்பட்டது',
   'loanDetail.paymentDeleteFailed': 'செலுத்துதலை நீக்க முடியவில்லை',
   'loanDetail.capitalizedDefaulted': 'தவணை அசலில் சேர்க்கப்பட்டது. கடன் தவறியதாகக் குறிக்கப்பட்டது.',

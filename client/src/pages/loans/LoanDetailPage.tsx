@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Card, CardBody, CardHeader, StatCard } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { LoanStatusBadge, StatusBadge } from '../../components/ui/Badge';
+import { Badge, LoanStatusBadge, StatusBadge } from '../../components/ui/Badge';
 import { ConfirmDialog } from '../../components/ui/Modal';
 import { EmptyState, ErrorState, LoadingState } from '../../components/ui/Feedback';
 import { TBody, TD, TH, THead, TR, Table } from '../../components/ui/Table';
@@ -47,6 +47,8 @@ export function LoanDetailPage() {
 
   const { rollup } = data;
   const hasPayments = data.payments.length > 0;
+  // A settled loan is frozen: only its settlement payment can be removed (which undoes it).
+  const settled = data.payments.some((p) => p.kind === 'SETTLEMENT');
   // Payments are allocated oldest-first, so only the earliest open installment is collectable.
   const firstOpen = data.schedule.find(isOpenInstallment);
   const firstOpenId = firstOpen?.id;
@@ -421,16 +423,33 @@ export function LoanDetailPage() {
                   <TD>{formatDate(p.date)}</TD>
                   <TD align="center">{p.installment ? `#${p.installment.sequence}` : '—'}</TD>
                   <TD>{p.mode}</TD>
-                  <TD>{p.note ?? '—'}</TD>
+                  <TD>
+                    {p.kind === 'SETTLEMENT' && (
+                      <span className="mr-1.5">
+                        <Badge tone="indigo">{t('loanDetail.settlementPayment')}</Badge>
+                      </span>
+                    )}
+                    {p.note ?? '—'}
+                  </TD>
                   <TD align="right">{formatCurrency(p.amount)}</TD>
                   <TD align="right">
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => openEditPayment(p)}>
-                        {t('common.edit')}
-                      </Button>
-                      <Button size="sm" variant="danger" onClick={() => setDeletePaymentTarget(p)}>
-                        {t('common.delete')}
-                      </Button>
+                      {p.kind === 'SETTLEMENT' ? (
+                        <Button size="sm" variant="danger" onClick={() => setDeletePaymentTarget(p)}>
+                          {t('loanDetail.undoSettlement')}
+                        </Button>
+                      ) : settled ? (
+                        <span className="text-xs text-slate-400">{t('loanDetail.lockedBySettlement')}</span>
+                      ) : (
+                        <>
+                          <Button size="sm" variant="secondary" onClick={() => openEditPayment(p)}>
+                            {t('common.edit')}
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => setDeletePaymentTarget(p)}>
+                            {t('common.delete')}
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </TD>
                 </TR>
@@ -463,17 +482,27 @@ export function LoanDetailPage() {
 
       <ConfirmDialog
         open={deletePaymentTarget !== null}
-        title={t('loanDetail.deletePaymentTitle')}
+        title={
+          deletePaymentTarget?.kind === 'SETTLEMENT'
+            ? t('loanDetail.undoSettlementTitle')
+            : t('loanDetail.deletePaymentTitle')
+        }
         danger
         busy={deletePaymentBusy}
-        confirmLabel={t('common.delete')}
+        confirmLabel={
+          deletePaymentTarget?.kind === 'SETTLEMENT' ? t('loanDetail.undoSettlement') : t('common.delete')
+        }
         message={
-          deletePaymentTarget
-            ? tNode('loanDetail.deletePaymentMessage', {
+          deletePaymentTarget?.kind === 'SETTLEMENT'
+            ? tNode('loanDetail.undoSettlementMessage', {
                 amount: <strong>{formatCurrency(deletePaymentTarget.amount)}</strong>,
-                date: formatDate(deletePaymentTarget.date),
               })
-            : null
+            : deletePaymentTarget
+              ? tNode('loanDetail.deletePaymentMessage', {
+                  amount: <strong>{formatCurrency(deletePaymentTarget.amount)}</strong>,
+                  date: formatDate(deletePaymentTarget.date),
+                })
+              : null
         }
         onConfirm={confirmDeletePayment}
         onCancel={() => setDeletePaymentTarget(null)}

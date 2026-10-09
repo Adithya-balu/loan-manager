@@ -29,6 +29,11 @@ enum LoanStatus {
   DEFAULTED
 }
 
+enum PaymentKind {
+  REGULAR
+  SETTLEMENT
+}
+
 enum InstallmentStatus {
   SCHEDULED
   DUE
@@ -139,6 +144,9 @@ model Installment {
   capitalizedAmount  Float             @default(0)
   status             InstallmentStatus @default(SCHEDULED)
   paidDate           DateTime?
+  /// Unpaid interest written off when the loan was settled early. Counted in
+  /// paidAmount (so the installment reads as PAID) but never received as cash.
+  waivedAmount       Float             @default(0)
   payments           Payment[]
 
   @@unique([loanId, sequence])
@@ -147,18 +155,21 @@ model Installment {
 }
 
 model Payment {
-  id            String       @id @default(cuid())
-  loanId        String
-  loan          Loan         @relation(fields: [loanId], references: [id], onDelete: Cascade)
-  installmentId String?
-  installment   Installment? @relation(fields: [installmentId], references: [id])
-  customerId    String
-  customer      Customer     @relation(fields: [customerId], references: [id])
-  amount        Float
-  date          DateTime
-  mode          PaymentMode  @default(CASH)
-  note          String?
-  createdAt     DateTime     @default(now())
+  id                 String       @id @default(cuid())
+  loanId             String
+  loan               Loan         @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  installmentId      String?
+  installment        Installment? @relation(fields: [installmentId], references: [id])
+  customerId         String
+  customer           Customer     @relation(fields: [customerId], references: [id])
+  amount             Float
+  date               DateTime
+  mode               PaymentMode  @default(CASH)
+  note               String?
+  kind               PaymentKind  @default(REGULAR)
+  /// SETTLEMENT only: the interest-to-date portion of the settlement amount.
+  settlementInterest Float?
+  createdAt          DateTime     @default(now())
 
   @@index([date])
 }
